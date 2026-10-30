@@ -60,6 +60,26 @@ import /etc/caddy/managed.caddy
 
 Die globale Option `email` (Let's Encrypt) wird nur geschrieben, wenn die verwaltete Datei auch die Haupt-Caddyfile ist. Sonst trägst du sie selbst in deine Caddyfile ein.
 
+### Als systemd-Dienst
+
+[`caddy-manager.service`](caddy-manager.service) startet das UI als Benutzer `caddy` auf `127.0.0.1:8090` (also nur über Caddy erreichbar, siehe oben) und legt die Datenbank unter `/var/lib/caddy-manager/` ab:
+
+```sh
+install -m 755 caddy-manager /usr/local/bin/
+install -m 644 caddy-manager.service /etc/systemd/system/
+chown caddy:caddy /etc/caddy   # Schreibrechte für die verwaltete Caddyfile
+systemctl daemon-reload
+systemctl enable --now caddy-manager
+```
+
+Liegt die verwaltete Caddyfile woanders als in `/etc/caddy`, passe `ReadWritePaths=` in der Unit an. Für die Ersteinrichtung vorher kurz `manager.example.com { reverse_proxy 127.0.0.1:8090 }` in die Caddyfile eintragen oder per SSH-Tunnel auf Port 8090 zugreifen.
+
+Passwort zurücksetzen:
+
+```sh
+sudo -u caddy /usr/local/bin/caddy-manager -db /var/lib/caddy-manager/caddy-manager.db -reset-password <user>
+```
+
 ### Voraussetzungen
 
 - Caddy ≥ 2.8 (wegen `basic_auth`)

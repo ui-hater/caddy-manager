@@ -1,0 +1,56 @@
+# /etc/systemd/system/caddy-manager.service
+#
+# Läuft als Benutzer "caddy" (vom Caddy-Paket angelegt), damit
+# `caddy validate` dieselben Daten (/var/lib/caddy) sieht wie der Caddy-Dienst.
+# Der Benutzer braucht Schreibrechte auf das Verzeichnis der verwalteten
+# Caddyfile (die Datei wird atomar über <datei>.tmp ersetzt), z.B.:
+#   chown caddy:caddy /etc/caddy
+#
+# Datenbank: /var/lib/caddy-manager/caddy-manager.db
+
+[Unit]
+Description=caddy-manager (Web-UI für Caddy-Subdomains)
+Documentation=https://github.com/ui-hater/caddy-manager
+After=network-online.target caddy.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=caddy
+Group=caddy
+ExecStart=/usr/local/bin/caddy-manager -listen 127.0.0.1:8090 -db /var/lib/caddy-manager/caddy-manager.db
+Restart=on-failure
+RestartSec=5s
+
+StateDirectory=caddy-manager
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/caddy-manager
+
+# Härtung
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/etc/caddy /var/lib/caddy
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
