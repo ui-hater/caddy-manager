@@ -1,0 +1,25 @@
+{{define "caddy-settings"}}
+<label>Verwaltete Caddyfile
+  <input name="caddy_file" value="{{.CaddyFile}}" required>
+  <small>Wird von caddy-manager komplett überschrieben.</small>
+</label>
+<label>Haupt-Caddyfile (optional)
+  <input name="caddy_config" value="{{.CaddyConfig}}" placeholder="leer = gleiche Datei">
+  <small>Nur nötig, wenn deine eigene Caddyfile die verwaltete per <code>import</code> einbindet.</small>
+</label>
+<label>caddy-Binary <input name="caddy_bin" value="{{.CaddyBin}}" placeholder="caddy"></label>
+<label>E-Mail für Let's Encrypt (optional)
+  <input type="email" name="email" value="{{.Email}}" placeholder="admin@aaronhosting.xyz">
+  <small>Wird als globale Option <code>email</code> geschrieben – nur wenn die verwaltete Datei auch die Haupt-Caddyfile ist.</small>
+</label>
+<label class="check"><input type="checkbox" name="reload" {{if .Reload}}checked{{end}}> Nach Änderungen <code>caddy validate</code> + <code>caddy reload</code> ausführen</label>
+{{end}}
+
+{{define "admin-nav"}}
+<nav class="subnav">
+  <a href="/admin" {{if eq . "/admin"}}class="active"{{end}}>Übersicht</a>
+  <a href="/admin/users" {{if eq . "/admin/users"}}class="active"{{end}}>Konten</a>
+  <a href="/admin/namespaces" {{if eq . "/admin/namespaces"}}class="active"{{end}}>Namespaces</a>
+  <a href="/admin/caddy" {{if eq . "/admin/caddy"}}class="active"{{end}}>Caddy</a>
+</nav>
+{{end}}

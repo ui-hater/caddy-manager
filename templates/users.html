@@ -1,0 +1,67 @@
+{{define "content"}}
+{{$csrf := .CSRF}}{{$me := .User}}{{$nss := .D.Namespaces}}
+{{template "admin-nav" .Path}}
+<h1>Konten</h1>
+<section class="card">
+  <h2>Neues Konto</h2>
+  <form method="post" action="/admin/users" class="row">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label>Benutzername <input name="username" required pattern="[A-Za-z0-9_.\-]{3,32}"></label>
+    <label>Passwort <input type="password" name="password" placeholder="leer = zufällig" autocomplete="new-password"></label>
+    <label>Namespace
+      <select name="namespace">
+        <option value="">– keiner –</option>
+        {{range $nss}}<option value="{{.Domain}}">{{.Domain}}</option>{{end}}
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" name="is_admin"> Admin</label>
+    <button>Anlegen</button>
+  </form>
+  <p class="muted">Neue Benutzer müssen ihr Passwort beim ersten Login ändern.</p>
+</section>
+
+<section class="card">
+  <table>
+    <thead><tr><th>Benutzer</th><th>Namespace</th><th>Rolle</th><th>Angelegt</th><th></th></tr></thead>
+    <tbody>
+    {{range .D.Users}}{{$u := .}}
+      <tr>
+        <td>{{.Username}}{{if .MustChangePassword}} <span class="badge warn" title="Einmal-Passwort noch nicht geändert">Einmal-PW</span>{{end}}</td>
+        <td>
+          <form method="post" action="/admin/users/{{.ID}}/namespace" class="inline">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <select name="namespace">
+              <option value="">– keiner –</option>
+              {{range $nss}}<option value="{{.Domain}}" {{if eq .Domain $u.Namespace}}selected{{end}}>{{.Domain}}</option>{{end}}
+            </select>
+            <button class="secondary">Setzen</button>
+          </form>
+        </td>
+        <td>
+          {{if .IsAdmin}}<span class="badge">Admin</span>{{else}}Benutzer{{end}}
+          {{if ne .ID $me.ID}}
+          <form method="post" action="/admin/users/{{.ID}}/admin" class="inline">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <button class="link">{{if .IsAdmin}}Admin entziehen{{else}}zum Admin machen{{end}}</button>
+          </form>
+          {{end}}
+        </td>
+        <td class="muted">{{fmtTime .CreatedAt}}</td>
+        <td class="actions">
+          <form method="post" action="/admin/users/{{.ID}}/password" class="inline" data-confirm="Passwort von {{.Username}} ändern?">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <input type="password" name="password" placeholder="leer = zufällig" autocomplete="new-password" size="12">
+            <button class="secondary">PW setzen</button>
+          </form>
+          {{if ne .ID $me.ID}}
+          <form method="post" action="/admin/users/{{.ID}}/delete" class="inline" data-confirm="{{.Username}} wirklich löschen?">
+            <input type="hidden" name="csrf" value="{{$csrf}}"><button class="danger">Löschen</button>
+          </form>
+          {{end}}
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}

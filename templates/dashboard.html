@@ -1,0 +1,88 @@
+{{define "content"}}
+{{$csrf := .CSRF}}{{$user := .User}}{{$ns := .D.Namespace}}
+<div class="head">
+  <h1>Subdomains</h1>
+  {{if $user.IsAdmin}}
+  <form method="get" action="/" class="inline">
+    <select name="ns" data-autosubmit>
+      <option value="">Alle Namespaces</option>
+      {{range .D.Namespaces}}<option value="{{.Domain}}" {{if eq .Domain $ns}}selected{{end}}>{{.Domain}}</option>{{end}}
+    </select>
+    <noscript><button>Filtern</button></noscript>
+  </form>
+  {{else if $ns}}
+  <p class="muted">Namespace <strong>{{$ns}}</strong>{{with .D.Members}} · Mitglieder: {{range $i, $m := .}}{{if $i}}, {{end}}{{$m}}{{end}}{{end}}</p>
+  {{end}}
+</div>
+
+{{if or $ns $user.IsAdmin}}
+<section class="card">
+  <h2>Neue Subdomain</h2>
+  {{if and $user.IsAdmin (not .D.Namespaces)}}
+  <p class="muted">Lege zuerst unter <a href="/admin/namespaces">Namespaces</a> eine Domain an.</p>
+  {{else}}
+  <form method="post" action="/proxies" class="row">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <input type="hidden" name="back_ns" value="{{$ns}}">
+    <label>Subdomain
+      <span class="host-input">
+        <input name="subdomain" placeholder="social" required>
+        {{if $user.IsAdmin}}
+        <select name="namespace" required>
+          {{range .D.Namespaces}}<option value="{{.Domain}}" {{if eq .Domain $ns}}selected{{end}}>.{{.Domain}}</option>{{end}}
+        </select>
+        {{else}}<span class="suffix">.{{$ns}}</span>{{end}}
+      </span>
+    </label>
+    <label>Ziel (VM / Dienst) <input name="upstream" placeholder="10.0.0.12:8080" required></label>
+    <button>Anlegen</button>
+  </form>
+  <p class="muted">Beispiel: <code>social</code> → <code>10.0.0.12:3000</code>. Für die Domain selbst <code>@</code> eingeben.</p>
+  {{end}}
+</section>
+{{else}}
+<section class="card"><p>Deinem Konto ist noch kein Namespace zugewiesen. Bitte wende dich an den Administrator.</p></section>
+{{end}}
+
+<section class="card">
+  {{if .D.Proxies}}
+  <table>
+    <thead><tr><th>Subdomain</th>{{if $user.IsAdmin}}<th>Namespace</th>{{end}}<th>Ziel</th><th>Angelegt</th><th></th></tr></thead>
+    <tbody>
+    {{range .D.Proxies}}{{$o := .Opts}}{{$kind := $o.KindOrDefault}}
+      <tr {{if not .Enabled}}class="disabled"{{end}}>
+        <td>
+          <a href="https://{{.Host}}" target="_blank" rel="noopener">{{.Host}}</a>
+          <div class="badges">
+            {{if not .Enabled}}<span class="badge off">aus</span>{{end}}
+            {{if $o.BasicAuthUser}}<span class="badge muted-badge" title="Passwortschutz">🔒 Passwort</span>{{end}}
+            {{if $o.AllowIPs}}<span class="badge muted-badge" title="{{range $o.AllowIPs}}{{.}} {{end}}">IP-Filter</span>{{end}}
+            {{if $o.Routes}}<span class="badge muted-badge">{{len $o.Routes}} Pfad-Route{{if gt (len $o.Routes) 1}}n{{end}}</span>{{end}}
+            {{if $o.Extra}}<span class="badge muted-badge">eigene Direktiven</span>{{end}}
+          </div>
+        </td>
+        {{if $user.IsAdmin}}<td>{{.Namespace}}</td>{{end}}
+        <td>
+          {{if eq $kind "redirect"}}↪ <code>{{$o.RedirectTo}}</code> <span class="muted">({{$o.RedirectCode}})</span>
+          {{else if eq $kind "respond"}}<span class="muted">Antwort {{$o.RespondStatus}}:</span> {{$o.RespondBody}}
+          {{else}}{{range $i, $u := (splitFields .Upstream)}}{{if $i}}<br>{{end}}<code>{{$u}}</code>{{end}}{{end}}
+        </td>
+        <td class="muted">{{fmtTime .CreatedAt}}<br>von {{.CreatedBy}}</td>
+        <td class="actions">
+          <a class="button secondary" href="/proxies/{{.ID}}{{if $ns}}?back_ns={{$ns}}{{end}}">Bearbeiten</a>
+          <form method="post" action="/proxies/{{.ID}}/toggle" class="inline">
+            <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="back_ns" value="{{$ns}}">
+            <button class="secondary">{{if .Enabled}}Deaktivieren{{else}}Aktivieren{{end}}</button>
+          </form>
+          <form method="post" action="/proxies/{{.ID}}/delete" class="inline" data-confirm="{{.Host}} wirklich löschen?">
+            <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="back_ns" value="{{$ns}}">
+            <button class="danger">Löschen</button>
+          </form>
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="muted">Noch keine Subdomains.</p>{{end}}
+</section>
+{{end}}

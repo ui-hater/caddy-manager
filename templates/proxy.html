@@ -1,0 +1,122 @@
+{{define "content"}}
+{{$p := .D.P}}{{$o := $p.Opts}}{{$kind := .D.Kind}}
+<div class="head">
+  <h1>{{$p.Host}}</h1>
+  <a href="{{.D.Back}}">← zurück</a>
+</div>
+{{if not $p.Enabled}}<p class="flash err">Diese Subdomain ist deaktiviert und steht nicht in der Caddyfile.</p>{{end}}
+
+<form method="post" action="/proxies/{{$p.ID}}/update" class="site-form">
+  <input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="back_ns" value="{{.D.BackNS}}">
+
+  <section class="card">
+    <h2>Typ</h2>
+    <div class="kinds">
+      <label class="kind"><input type="radio" name="kind" value="proxy" {{if eq $kind "proxy"}}checked{{end}}> <strong>Reverse Proxy</strong><span>Anfragen an eine VM / einen Dienst weiterleiten</span></label>
+      <label class="kind"><input type="radio" name="kind" value="redirect" {{if eq $kind "redirect"}}checked{{end}}> <strong>Weiterleitung</strong><span>Besucher auf eine andere URL schicken</span></label>
+      <label class="kind"><input type="radio" name="kind" value="respond" {{if eq $kind "respond"}}checked{{end}}> <strong>Feste Antwort</strong><span>z.B. Wartungsseite oder Platzhalter</span></label>
+    </div>
+  </section>
+
+  <section class="card" data-kind="proxy">
+    <h2>Reverse Proxy</h2>
+    <div class="stack">
+      <label>Ziel(e)
+        <textarea name="upstream" rows="2" placeholder="10.0.0.12:8080">{{$p.Upstream}}</textarea>
+        <small>Ein Ziel pro Zeile oder durch Leerzeichen getrennt, z.B. <code>10.0.0.12:8080</code> oder <code>https://10.0.0.5:8006</code>. Mehrere Ziele = Load-Balancing.</small>
+      </label>
+      <div class="row">
+        <label>Load-Balancing
+          <select name="lb_policy">
+            <option value="">Standard (random)</option>
+            {{range .D.LBPolicies}}<option value="{{.}}" {{if eq . $o.LBPolicy}}selected{{end}}>{{.}}</option>{{end}}
+          </select>
+        </label>
+        <label>Health-Check-Pfad <input name="health_uri" value="{{$o.HealthURI}}" placeholder="/health"></label>
+      </div>
+      <label class="check"><input type="checkbox" name="tls_skip_verify" {{if $o.TLSSkipVerify}}checked{{end}}> Zertifikat des HTTPS-Ziels nicht prüfen (selbstsigniert, z.B. Proxmox)</label>
+      <label class="check"><input type="checkbox" name="host_header" {{if $o.HostHeader}}checked{{end}}> Host-Header auf das Ziel setzen (für Dienste, die ihren eigenen Hostnamen erwarten)</label>
+    </div>
+
+    <h3>Pfad-Routen</h3>
+    <p class="muted">Bestimmte Pfade an ein anderes Ziel schicken, z.B. <code>/api</code> → <code>10.0.0.13:9000</code>. Alles andere geht an das Ziel oben.</p>
+    <table class="routes">
+      <thead><tr><th>Pfad</th><th>Ziel</th><th>Präfix</th></tr></thead>
+      <tbody>
+      {{range .D.Routes}}
+        <tr>
+          <td><input name="route_path" value="{{.Path}}" placeholder="/api"></td>
+          <td><input name="route_upstream" value="{{.Upstream}}" placeholder="10.0.0.13:9000"></td>
+          <td><select name="route_strip">
+            <option value="0" {{if not .Strip}}selected{{end}}>behalten</option>
+            <option value="1" {{if .Strip}}selected{{end}}>entfernen</option>
+          </select></td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    <p class="muted">Leere Zeilen werden ignoriert; zum Löschen einer Route die Felder leeren. Nach dem Speichern erscheinen wieder zwei freie Zeilen.</p>
+  </section>
+
+  <section class="card" data-kind="redirect">
+    <h2>Weiterleitung</h2>
+    <div class="stack">
+      <label>Ziel-URL <input name="redirect_to" value="{{$o.RedirectTo}}" placeholder="https://www.example.com"></label>
+      <div class="row">
+        <label>Art
+          <select name="redirect_code">
+            {{range .D.RedirCodes}}<option value="{{.}}" {{if eq . $o.RedirectCode}}selected{{end}}>{{.}}{{if eq . 301}} (dauerhaft){{else if eq . 302}} (temporär){{end}}</option>{{end}}
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" name="redirect_keep_path" {{if $o.RedirectKeepPath}}checked{{end}}> Pfad anhängen (<code>/x?y</code> → <code>ziel/x?y</code>)</label>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" data-kind="respond">
+    <h2>Feste Antwort</h2>
+    <div class="row">
+      <label>Statuscode <input name="respond_status" type="number" min="200" max="599" value="{{if $o.RespondStatus}}{{$o.RespondStatus}}{{else}}503{{end}}"></label>
+      <label class="grow">Text <input name="respond_body" value="{{$o.RespondBody}}" placeholder="Wartungsarbeiten – bald wieder da"></label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Zugriff</h2>
+    <div class="stack">
+      <div class="row">
+        <label>Passwortschutz: Benutzer <input name="auth_user" value="{{$o.BasicAuthUser}}" autocomplete="off" placeholder="leer = kein Passwortschutz"></label>
+        <label>Passwort <input type="password" name="auth_password" autocomplete="new-password" placeholder="{{if $o.BasicAuthHash}}unverändert lassen{{else}}min. 8 Zeichen{{end}}"></label>
+      </div>
+      <label>Nur diese IPs / Netze erlauben
+        <textarea name="allow_ips" rows="2" placeholder="leer = alle erlaubt">{{.D.AllowIPs}}</textarea>
+        <small>Eine pro Zeile, z.B. <code>192.168.1.0/24</code> oder <code>private_ranges</code> für alle privaten Netze (LAN/VPN).</small>
+      </label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Optionen</h2>
+    <div class="stack">
+      <label class="check"><input type="checkbox" name="compress" {{if $o.Compress}}checked{{end}}> Komprimierung (zstd / gzip)</label>
+      <label class="check"><input type="checkbox" name="hsts" {{if $o.HSTS}}checked{{end}}> HSTS-Header (Browser erzwingen dauerhaft HTTPS)</label>
+      <label class="check"><input type="checkbox" name="access_log" {{if $o.AccessLog}}checked{{end}}> Zugriffslog</label>
+    </div>
+  </section>
+
+  {{if .User.IsAdmin}}
+  <section class="card">
+    <h2>Eigene Caddy-Direktiven <span class="badge">nur Admin</span></h2>
+    <textarea name="extra" rows="5" class="mono" placeholder="header X-Robots-Tag noindex">{{$o.Extra}}</textarea>
+    <p class="muted">Wird unverändert in den Site-Block geschrieben und von <code>caddy validate</code> geprüft.</p>
+  </section>
+  {{else if $o.Extra}}
+  <p class="muted">Diese Subdomain enthält zusätzliche Direktiven vom Admin.</p>
+  {{end}}
+
+  <div class="actions-bar">
+    <button>Speichern &amp; Caddy neu laden</button>
+    <a href="{{.D.Back}}">Abbrechen</a>
+  </div>
+</form>
+{{end}}

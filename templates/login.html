@@ -1,0 +1,11 @@
+{{define "content"}}
+<section class="card narrow">
+  <h1>Anmelden</h1>
+  <form method="post" action="/login" class="stack">
+    <label>Benutzername <input name="username" value="{{index .D "username"}}" autocomplete="username" required autofocus></label>
+    <label>Passwort <input type="password" name="password" autocomplete="current-password" required></label>
+    <button>Anmelden</button>
+  </form>
+  <p class="muted">Konten werden nur vom Administrator angelegt.</p>
+</section>
+{{end}}

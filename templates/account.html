@@ -1,0 +1,20 @@
+{{define "content"}}
+<section class="card narrow">
+  <h1>Konto</h1>
+  <dl class="facts">
+    <dt>Benutzer</dt><dd>{{.User.Username}}{{if .User.IsAdmin}} <span class="badge">Admin</span>{{end}}</dd>
+    <dt>Namespace</dt><dd>{{if .User.Namespace}}{{.User.Namespace}}{{else}}<span class="muted">keiner</span>{{end}}</dd>
+  </dl>
+  <h2>Passwort ändern</h2>
+  {{if .User.MustChangePassword}}<p class="flash err">Du verwendest ein Einmal-Passwort. Bitte setze jetzt ein eigenes.</p>{{end}}
+  <form method="post" action="/account/password" class="stack">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <input type="text" name="username" value="{{.User.Username}}" autocomplete="username" hidden>
+    <label>Aktuelles Passwort <input type="password" name="current" autocomplete="current-password" required></label>
+    <label>Neues Passwort <input type="password" name="new" autocomplete="new-password" minlength="10" required></label>
+    <label>Neues Passwort wiederholen <input type="password" name="confirm" autocomplete="new-password" minlength="10" required></label>
+    <button>Passwort ändern</button>
+  </form>
+  <p class="muted">Mindestens 10 Zeichen. Andere Sitzungen werden dabei abgemeldet.</p>
+</section>
+{{end}}

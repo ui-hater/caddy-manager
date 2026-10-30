@@ -1,0 +1,5 @@
+/caddy-manager
+/caddy-manager.exe
+*.db
+*.db-shm
+*.db-wal

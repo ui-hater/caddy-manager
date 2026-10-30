@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · Caddy Manager</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+{{if .User}}
+<header class="top">
+  <a class="brand" href="/">Caddy Manager</a>
+  <nav>
+    <a href="/" {{if eq .Path "/"}}class="active"{{end}}>Subdomains</a>
+    {{if .User.IsAdmin}}<a href="/admin" {{if hasPrefix .Path "/admin"}}class="active"{{end}}>Admin</a>{{end}}
+  </nav>
+  <div class="me">
+    <a href="/account" {{if eq .Path "/account"}}class="active"{{end}}>{{.User.Username}}{{if .User.Namespace}} · {{.User.Namespace}}{{end}}</a>
+    <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="link">Abmelden</button></form>
+  </div>
+</header>
+{{end}}
+<main>
+  {{with .Flash}}<div class="flash {{.Kind}}">{{.Msg}}</div>{{end}}
+  {{template "content" .}}
+</main>
+</body>
+</html>

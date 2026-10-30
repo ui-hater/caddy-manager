@@ -1,0 +1,16 @@
+{{define "content"}}
+<section class="card narrow wide">
+  <h1>Ersteinrichtung</h1>
+  <p class="muted">Lege das Administrator-Konto an und sag caddy-manager, wo deine Caddy-Konfiguration liegt. Diese Seite ist nur verfügbar, solange es noch kein Konto gibt.</p>
+  <form method="post" action="/setup" class="stack">
+    <h2>Administrator</h2>
+    <label>Benutzername <input name="username" value="{{.D.Username}}" autocomplete="username" required pattern="[A-Za-z0-9_.\-]{3,32}"></label>
+    <label>Passwort <input type="password" name="password" autocomplete="new-password" minlength="10" required></label>
+    <label>Passwort wiederholen <input type="password" name="confirm" autocomplete="new-password" minlength="10" required></label>
+
+    <h2>Caddy</h2>
+    {{template "caddy-settings" .D.Settings}}
+    <button>Einrichtung abschließen</button>
+  </form>
+</section>
+{{end}}
