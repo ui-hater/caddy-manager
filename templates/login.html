@@ -1,11 +1,11 @@
 {{define "content"}}
 <section class="card narrow">
-  <h1>Anmelden</h1>
+  <h1>{{t "Anmelden"}}</h1>
   <form method="post" action="/login" class="stack">
-    <label>Benutzername <input name="username" value="{{index .D "username"}}" autocomplete="username" required autofocus></label>
-    <label>Passwort <input type="password" name="password" autocomplete="current-password" required></label>
-    <button>Anmelden</button>
+    <label>{{t "Benutzername"}} <input name="username" value="{{index .D "username"}}" autocomplete="username" required autofocus></label>
+    <label>{{t "Passwort"}} <input type="password" name="password" autocomplete="current-password" required></label>
+    <button>{{t "Anmelden"}}</button>
   </form>
-  <p class="muted">Konten werden nur vom Administrator angelegt.</p>
+  <p class="muted">{{t "Konten werden nur vom Administrator angelegt."}}</p>
 </section>
 {{end}}

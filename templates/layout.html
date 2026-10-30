@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="{{.Lang}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -12,12 +12,12 @@
 <header class="top">
   <a class="brand" href="/">Caddy Manager</a>
   <nav>
-    <a href="/" {{if eq .Path "/"}}class="active"{{end}}>Subdomains</a>
-    {{if .User.IsAdmin}}<a href="/admin" {{if hasPrefix .Path "/admin"}}class="active"{{end}}>Admin</a>{{end}}
+    <a href="/" {{if eq .Path "/"}}class="active"{{end}}>{{t "Subdomains"}}</a>
+    {{if .User.IsAdmin}}<a href="/admin" {{if hasPrefix .Path "/admin"}}class="active"{{end}}>{{t "Admin"}}</a>{{end}}
   </nav>
   <div class="me">
     <a href="/account" {{if eq .Path "/account"}}class="active"{{end}}>{{.User.Username}}{{if .User.Namespace}} · {{.User.Namespace}}{{end}}</a>
-    <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="link">Abmelden</button></form>
+    <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="link">{{t "Abmelden"}}</button></form>
   </div>
 </header>
 {{end}}
@@ -25,5 +25,9 @@
   {{with .Flash}}<div class="flash {{.Kind}}">{{.Msg}}</div>{{end}}
   {{template "content" .}}
 </main>
+<footer class="foot">
+  {{$path := .Path}}{{$cur := .Lang}}
+  {{range .Langs}}<a href="/lang/{{.}}?next={{$path}}" {{if eq . $cur}}class="active"{{end}}>{{if eq . "de"}}Deutsch{{else}}English{{end}}</a>{{end}}
+</footer>
 </body>
 </html>

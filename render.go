@@ -65,13 +65,14 @@ func renderSite(b *strings.Builder, p Proxy) {
 	// route keeps the handlers in exactly this order instead of Caddy's
 	// default directive order (IP check -> auth -> headers -> handler).
 	// A site with only a handler doesn't need it.
-	useRoute := len(o.AllowIPs) > 0 || o.BasicAuthHash != "" || o.HSTS || o.Compress || len(o.Routes) > 0
+	respHeaders := o.HeadersFor(HeaderResponse)
+	useRoute := len(o.AllowIPs) > 0 || o.BasicAuthHash != "" || o.HSTS || o.Compress || len(o.Routes) > 0 || len(respHeaders) > 0
 	if useRoute {
 		w.open("route")
 	}
 	if len(o.AllowIPs) > 0 {
 		w.line("@blocked not remote_ip %s", strings.Join(o.AllowIPs, " "))
-		w.line(`respond @blocked "Zugriff verweigert" 403`)
+		w.line(`respond @blocked "Forbidden" 403`)
 	}
 	if o.BasicAuthUser != "" && o.BasicAuthHash != "" {
 		w.open("basic_auth")
@@ -80,6 +81,16 @@ func renderSite(b *strings.Builder, p Proxy) {
 	}
 	if o.HSTS {
 		w.line(`header Strict-Transport-Security "max-age=31536000; includeSubDomains"`)
+	}
+	if len(respHeaders) > 0 {
+		// defer applies the changes after the upstream answered, so they
+		// also override or remove headers set by the upstream.
+		w.open("header")
+		for _, h := range respHeaders {
+			w.line("%s", headerOp(h))
+		}
+		w.line("defer")
+		w.close()
 	}
 	if o.Compress {
 		w.line("encode zstd gzip")
@@ -128,7 +139,8 @@ func renderProxy(w *blockWriter, upstreams string, o SiteOptions) {
 	ups := strings.Fields(upstreams)
 	multi := len(ups) > 1
 	tls := strings.HasPrefix(upstreams, "https://") && o.TLSSkipVerify
-	if !multi && o.HealthURI == "" && !o.HostHeader && !tls {
+	reqHeaders := o.HeadersFor(HeaderRequest)
+	if !multi && o.HealthURI == "" && !o.HostHeader && !tls && len(reqHeaders) == 0 {
 		w.line("reverse_proxy %s", upstreams)
 		return
 	}
@@ -142,10 +154,25 @@ func renderProxy(w *blockWriter, upstreams string, o SiteOptions) {
 	if o.HostHeader {
 		w.line("header_up Host {upstream_hostport}")
 	}
+	for _, h := range reqHeaders {
+		w.line("header_up %s", headerOp(h))
+	}
 	if tls {
 		w.open("transport http")
 		w.line("tls_insecure_skip_verify")
 		w.close()
 	}
 	w.close()
+}
+
+// headerOp renders one rule in the field syntax shared by header and header_up.
+func headerOp(h HeaderRule) string {
+	switch h.Op {
+	case HeaderDelete:
+		return "-" + h.Name
+	case HeaderAdd:
+		return fmt.Sprintf(`+%s "%s"`, h.Name, h.Value)
+	default:
+		return fmt.Sprintf(`%s "%s"`, h.Name, h.Value)
+	}
 }

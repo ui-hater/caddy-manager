@@ -68,13 +68,14 @@ type SiteOptions struct {
 	RespondBody   string `json:"respond_body,omitempty"`
 
 	// common
-	BasicAuthUser string   `json:"basic_auth_user,omitempty"`
-	BasicAuthHash string   `json:"basic_auth_hash,omitempty"`
-	AllowIPs      []string `json:"allow_ips,omitempty"`
-	Compress      bool     `json:"compress,omitempty"`
-	HSTS          bool     `json:"hsts,omitempty"`
-	AccessLog     bool     `json:"access_log,omitempty"`
-	Extra         string   `json:"extra,omitempty"` // raw directives, admins only
+	BasicAuthUser string       `json:"basic_auth_user,omitempty"`
+	BasicAuthHash string       `json:"basic_auth_hash,omitempty"`
+	AllowIPs      []string     `json:"allow_ips,omitempty"`
+	Compress      bool         `json:"compress,omitempty"`
+	HSTS          bool         `json:"hsts,omitempty"`
+	AccessLog     bool         `json:"access_log,omitempty"`
+	Headers       []HeaderRule `json:"headers,omitempty"`
+	Extra         string       `json:"extra,omitempty"` // raw directives, admins only
 }
 
 // Route sends a path prefix to a different upstream.
@@ -82,6 +83,34 @@ type Route struct {
 	Path     string `json:"path"`
 	Upstream string `json:"upstream"`
 	Strip    bool   `json:"strip,omitempty"`
+}
+
+const (
+	HeaderResponse = "response" // sent to the visitor (Caddy "header")
+	HeaderRequest  = "request"  // sent to the upstream (Caddy "header_up")
+
+	HeaderSet    = "set"
+	HeaderAdd    = "add"
+	HeaderDelete = "delete"
+)
+
+// HeaderRule sets, adds or removes one HTTP header.
+type HeaderRule struct {
+	Target string `json:"target"`
+	Op     string `json:"op"`
+	Name   string `json:"name"`
+	Value  string `json:"value,omitempty"`
+}
+
+// HeadersFor returns the rules for one target.
+func (o SiteOptions) HeadersFor(target string) []HeaderRule {
+	var out []HeaderRule
+	for _, h := range o.Headers {
+		if h.Target == target {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 func (o SiteOptions) KindOrDefault() string {
@@ -105,8 +134,8 @@ func DefaultSettings() Settings {
 }
 
 var (
-	ErrNotFound = errors.New("nicht gefunden")
-	ErrExists   = errors.New("existiert bereits")
+	ErrNotFound = errf("nicht gefunden")
+	ErrExists   = errf("existiert bereits")
 )
 
 const schema = `
@@ -255,7 +284,7 @@ func (s *Store) UserByName(name string) (User, error) {
 func checkNamespace(q dbtx, ns string) error {
 	var x int
 	if ns != "" && q.QueryRow(`SELECT 1 FROM namespaces WHERE domain = ?`, ns).Scan(&x) != nil {
-		return errors.New("Namespace existiert nicht")
+		return errf("Namespace existiert nicht")
 	}
 	return nil
 }
@@ -377,7 +406,7 @@ func (s *Store) CreateNamespace(domain string) error {
 	err = tx.QueryRow(`SELECT domain FROM namespaces WHERE domain = ? OR ? LIKE '%.' || domain OR domain LIKE '%.' || ? LIMIT 1`,
 		domain, domain, domain).Scan(&other)
 	if err == nil {
-		return errors.New("überschneidet sich mit Namespace " + other)
+		return errf("überschneidet sich mit Namespace %s", other)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
@@ -397,11 +426,11 @@ func (s *Store) DeleteNamespace(domain string) error {
 	var n int
 	tx.QueryRow(`SELECT COUNT(*) FROM users WHERE namespace = ?`, domain).Scan(&n)
 	if n > 0 {
-		return errors.New("Namespace hat noch Benutzer")
+		return errf("Namespace hat noch Benutzer")
 	}
 	tx.QueryRow(`SELECT COUNT(*) FROM proxies WHERE namespace = ?`, domain).Scan(&n)
 	if n > 0 {
-		return errors.New("Namespace hat noch Reverse Proxies")
+		return errf("Namespace hat noch Subdomains")
 	}
 	res, err := tx.Exec(`DELETE FROM namespaces WHERE domain = ?`, domain)
 	if err != nil {
@@ -486,7 +515,7 @@ func (s *Store) ChangeProxies(c ProxyChange, apply func([]Proxy) error) (Proxy, 
 		res, err = tx.Exec(`INSERT INTO proxies (namespace, host, upstream, enabled, options, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 			p.Namespace, p.Host, p.Upstream, p.Enabled, string(opts), p.CreatedBy, p.CreatedAt.Unix())
 		if isUnique(err) {
-			return Proxy{}, errors.New("Host " + p.Host + " ist bereits vergeben")
+			return Proxy{}, errf("Host %s ist bereits vergeben", p.Host)
 		}
 		if err == nil {
 			p.ID, _ = res.LastInsertId()

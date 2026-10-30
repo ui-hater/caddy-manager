@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"net"
 	"regexp"
 	"strconv"
@@ -17,19 +16,19 @@ var (
 func normalizeDomain(s string) (string, error) {
 	s = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(s)), ".")
 	if len(s) == 0 || len(s) > 253 {
-		return "", errors.New("ungültige Domain")
+		return "", errf("ungültige Domain")
 	}
 	labels := strings.Split(s, ".")
 	if len(labels) < 2 {
-		return "", errors.New("Domain braucht mindestens eine TLD, z.B. example.com")
+		return "", errf("Domain braucht mindestens eine TLD, z.B. example.com")
 	}
 	for _, l := range labels {
 		if !labelRe.MatchString(l) {
-			return "", errors.New("ungültiger Domain-Teil: " + l)
+			return "", errf("ungültiger Domain-Teil: %s", l)
 		}
 	}
 	if !tldRe.MatchString(labels[len(labels)-1]) {
-		return "", errors.New("ungültige TLD")
+		return "", errf("ungültige TLD")
 	}
 	return s, nil
 }
@@ -41,19 +40,19 @@ func buildHost(sub, namespace string) (string, error) {
 	// tolerate users typing the full name, e.g. "social.aaronhosting.xyz"
 	sub = strings.Trim(strings.TrimSuffix(sub, "."+namespace), ".")
 	if sub == "" {
-		return "", errors.New("Bitte eine Subdomain angeben, z.B. social")
+		return "", errf("Bitte eine Subdomain angeben, z.B. social")
 	}
 	if sub == "@" {
 		return namespace, nil
 	}
 	for _, l := range strings.Split(sub, ".") {
 		if !labelRe.MatchString(l) {
-			return "", errors.New("ungültige Subdomain: " + l)
+			return "", errf("ungültige Subdomain: %s", l)
 		}
 	}
 	host := sub + "." + namespace
 	if len(host) > 253 {
-		return "", errors.New("Hostname zu lang")
+		return "", errf("Hostname zu lang")
 	}
 	return host, nil
 }
@@ -70,11 +69,11 @@ func normalizeUpstream(s string) (string, error) {
 	}
 	host, port, err := net.SplitHostPort(s)
 	if err != nil {
-		return "", errors.New("Upstream muss die Form host:port haben, z.B. 127.0.0.1:8080")
+		return "", errf("Upstream muss die Form host:port haben, z.B. 127.0.0.1:8080")
 	}
 	n, err := strconv.Atoi(port)
 	if err != nil || n < 1 || n > 65535 {
-		return "", errors.New("ungültiger Port")
+		return "", errf("ungültiger Port")
 	}
 	if ip := net.ParseIP(host); ip != nil {
 		if ip.To4() == nil {
@@ -86,7 +85,7 @@ func normalizeUpstream(s string) (string, error) {
 		host = strings.ToLower(host)
 		for _, l := range strings.Split(host, ".") {
 			if !labelRe.MatchString(l) {
-				return "", errors.New("ungültiger Upstream-Host")
+				return "", errf("ungültiger Upstream-Host")
 			}
 		}
 	}
@@ -95,10 +94,10 @@ func normalizeUpstream(s string) (string, error) {
 
 func validatePassword(pw string) error {
 	if len(pw) < 10 {
-		return errors.New("Passwort muss mindestens 10 Zeichen lang sein")
+		return errf("Passwort muss mindestens 10 Zeichen lang sein")
 	}
 	if len(pw) > 72 {
-		return errors.New("Passwort darf höchstens 72 Bytes lang sein")
+		return errf("Passwort darf höchstens 72 Bytes lang sein")
 	}
 	return nil
 }
@@ -108,10 +107,10 @@ func validatePassword(pw string) error {
 func normalizeUpstreams(s string) (string, error) {
 	fields := strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' || r == '\r' || r == '\t' })
 	if len(fields) == 0 {
-		return "", errors.New("Mindestens ein Ziel angeben, z.B. 10.0.0.12:8080")
+		return "", errf("Mindestens ein Ziel angeben, z.B. 10.0.0.12:8080")
 	}
 	if len(fields) > 16 {
-		return "", errors.New("Höchstens 16 Ziele")
+		return "", errf("Höchstens 16 Ziele")
 	}
 	out := make([]string, 0, len(fields))
 	https := strings.HasPrefix(strings.ToLower(fields[0]), "https://")
@@ -121,7 +120,7 @@ func normalizeUpstreams(s string) (string, error) {
 			return "", err
 		}
 		if strings.HasPrefix(u, "https://") != https {
-			return "", errors.New("Alle Ziele müssen entweder http oder https verwenden")
+			return "", errf("Alle Ziele müssen entweder http oder https verwenden")
 		}
 		out = append(out, u)
 	}
@@ -142,7 +141,7 @@ var (
 func normalizeRoutePath(s string) (string, error) {
 	s = strings.TrimSuffix(strings.TrimSpace(s), "*")
 	if !pathRe.MatchString(s) || s == "/" {
-		return "", errors.New("ungültiger Pfad: " + s + " (z.B. /api)")
+		return "", errf("ungültiger Pfad: %s (z.B. /api)", s)
 	}
 	return strings.TrimSuffix(s, "/") + "/*", nil
 }
@@ -153,7 +152,7 @@ func normalizeHealthURI(s string) (string, error) {
 		return "", nil
 	}
 	if !healthRe.MatchString(s) {
-		return "", errors.New("ungültiger Health-Check-Pfad (z.B. /health)")
+		return "", errf("ungültiger Health-Check-Pfad (z.B. /health)")
 	}
 	return s, nil
 }
@@ -168,7 +167,7 @@ func normalizeRedirect(s string) (string, error) {
 		}
 	}
 	if scheme == "" {
-		return "", errors.New("Ziel-URL muss mit http:// oder https:// beginnen")
+		return "", errf("Ziel-URL muss mit http:// oder https:// beginnen")
 	}
 	host, path := rest, ""
 	if i := strings.IndexAny(rest, "/?#"); i >= 0 {
@@ -177,14 +176,14 @@ func normalizeRedirect(s string) (string, error) {
 	if _, _, err := net.SplitHostPort(host); err != nil {
 		host += ":1" // validate host part only
 		if _, err := normalizeUpstream(host); err != nil {
-			return "", errors.New("ungültiger Host in der Ziel-URL")
+			return "", errf("ungültiger Host in der Ziel-URL")
 		}
 		host = strings.TrimSuffix(host, ":1")
 	} else if _, err := normalizeUpstream(host); err != nil {
-		return "", errors.New("ungültiger Host in der Ziel-URL")
+		return "", errf("ungültiger Host in der Ziel-URL")
 	}
 	if !urlRestRe.MatchString(path) {
-		return "", errors.New("ungültige Zeichen im Pfad der Ziel-URL")
+		return "", errf("ungültige Zeichen im Pfad der Ziel-URL")
 	}
 	return scheme + strings.ToLower(host) + path, nil
 }
@@ -193,11 +192,11 @@ func normalizeRedirect(s string) (string, error) {
 // braces (which Caddy would evaluate as placeholders, e.g. {env.SECRET}).
 func validateRespondBody(s string) error {
 	if len(s) > 500 {
-		return errors.New("Antworttext darf höchstens 500 Zeichen lang sein")
+		return errf("Antworttext darf höchstens 500 Zeichen lang sein")
 	}
 	for _, r := range s {
 		if r < 0x20 || strings.ContainsRune("{}\"\\`", r) {
-			return errors.New("Antworttext darf keine Zeilenumbrüche, Anführungszeichen, Backslashes oder { } enthalten")
+			return errf("Antworttext darf keine Zeilenumbrüche, Anführungszeichen, Backslashes oder { } enthalten")
 		}
 	}
 	return nil
@@ -213,19 +212,19 @@ func normalizeAllowIPs(s string) ([]string, error) {
 		case strings.Contains(f, "/"):
 			_, n, err := net.ParseCIDR(f)
 			if err != nil {
-				return nil, errors.New("ungültiges Netz: " + f)
+				return nil, errf("ungültiges Netz: %s", f)
 			}
 			out = append(out, n.String())
 		default:
 			ip := net.ParseIP(f)
 			if ip == nil {
-				return nil, errors.New("ungültige IP: " + f)
+				return nil, errf("ungültige IP: %s", f)
 			}
 			out = append(out, ip.String())
 		}
 	}
 	if len(out) > 64 {
-		return nil, errors.New("Höchstens 64 IP-Einträge")
+		return nil, errf("Höchstens 64 IP-Einträge")
 	}
 	return out, nil
 }
@@ -241,21 +240,21 @@ func validateExtra(s string) error {
 		case '}':
 			depth--
 			if depth < 0 {
-				return errors.New("Eigene Direktiven: unerwartete }")
+				return errf("Eigene Direktiven: unerwartete }")
 			}
 		case 0:
-			return errors.New("Eigene Direktiven: ungültiges Zeichen")
+			return errf("Eigene Direktiven: ungültiges Zeichen")
 		}
 	}
 	if depth != 0 {
-		return errors.New("Eigene Direktiven: { und } sind nicht ausgeglichen")
+		return errf("Eigene Direktiven: { und } sind nicht ausgeglichen")
 	}
 	return nil
 }
 
 func validateEmail(s string) error {
 	if s != "" && !emailRe.MatchString(s) {
-		return errors.New("ungültige E-Mail-Adresse")
+		return errf("ungültige E-Mail-Adresse")
 	}
 	return nil
 }
@@ -267,4 +266,36 @@ func oneOf[T comparable](v T, allowed []T) bool {
 		}
 	}
 	return false
+}
+
+var headerNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
+
+// normalizeHeader checks one header rule. Values are plain text: no quotes,
+// backslashes or braces, so they can neither break the Caddyfile nor use
+// placeholders such as {env.SECRET}.
+func normalizeHeader(h HeaderRule) (HeaderRule, error) {
+	h.Name = strings.TrimSpace(h.Name)
+	h.Value = strings.TrimSpace(h.Value)
+	if !oneOf(h.Target, []string{HeaderResponse, HeaderRequest}) || !oneOf(h.Op, []string{HeaderSet, HeaderAdd, HeaderDelete}) {
+		return h, errf("ungültige Header-Regel")
+	}
+	if !headerNameRe.MatchString(h.Name) {
+		return h, errf("ungültiger Header-Name: %s", h.Name)
+	}
+	if h.Op == HeaderDelete {
+		h.Value = ""
+		return h, nil
+	}
+	if h.Value == "" {
+		return h, errf("Header %s: Wert fehlt", h.Name)
+	}
+	if len(h.Value) > 1000 {
+		return h, errf("Header %s: Wert darf höchstens 1000 Zeichen lang sein", h.Name)
+	}
+	for _, r := range h.Value {
+		if r < 0x20 || strings.ContainsRune("{}\"\\`", r) {
+			return h, errf("Header %s: Wert darf keine Anführungszeichen, Backslashes oder { } enthalten", h.Name)
+		}
+	}
+	return h, nil
 }

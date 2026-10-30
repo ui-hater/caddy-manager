@@ -14,9 +14,11 @@ Ein einzelnes Binary: Templates, CSS und JS sind per `go:embed` eingebettet, die
   - **Weiterleitung** (301/302/307/308, optional mit Pfad)
   - **Feste Antwort**, z.B. als Wartungsseite
   - **Passwortschutz** (`basic_auth`) und **IP-Freigabe** (z.B. `private_ranges` = nur LAN/VPN)
+  - **HTTP-Header** setzen, hinzufügen oder entfernen – für die Antwort an den Besucher (überschreibt auch Header vom Ziel) oder für die Anfrage ans Ziel
   - Komprimierung (zstd/gzip), HSTS, Zugriffslog, an/aus schalten
   - Eigene Caddy-Direktiven (nur Admins)
 - **Sicher speichern:** Jede Änderung schreibt die Caddyfile, prüft sie mit `caddy validate` und lädt sie mit `caddy reload`. Schlägt das fehl, werden Datei und Datenbank zurückgerollt.
+- **Deutsch & Englisch:** Die Sprache folgt dem Browser und lässt sich unten auf jeder Seite umschalten.
 - Alle Eingaben werden streng geprüft, damit niemand eigene Caddyfile-Syntax oder Platzhalter (z.B. `{env.SECRET}`) einschleusen kann.
 
 ## Bauen
@@ -72,6 +74,10 @@ go test ./...
 ```
 
 Die Tests prüfen die erzeugte Caddyfile mit Caddys eigenem Parser und `caddy.Validate`. Caddy ist dafür nur eine Test-Abhängigkeit und landet nicht im Binary.
+
+### Übersetzungen
+
+Deutsch ist die Quellsprache: Texte stehen auf Deutsch im Code (`errf`, `a.ok`, …) und in den Templates (`{{t "…"}}`, `{{th "…"}}` für Texte mit HTML, `{{tf "…" args}}`). Die englischen Übersetzungen liegen in `i18n_en.go`. `TestCatalogComplete` schlägt fehl, wenn ein Text keine Übersetzung hat, ein Eintrag nicht mehr benutzt wird oder die `%`-Platzhalter nicht übereinstimmen.
 
 ## Lizenz
 

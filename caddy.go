@@ -61,7 +61,7 @@ func (c *Caddy) Apply(proxies []Proxy) error {
 		return nil
 	}
 	if err := writeFileAtomic(file, content, 0o644); err != nil {
-		return fmt.Errorf("Caddyfile schreiben: %w", err)
+		return errf("Caddyfile schreiben: %v", err)
 	}
 	restore := func() {
 		if hadOld {
@@ -75,12 +75,12 @@ func (c *Caddy) Apply(proxies []Proxy) error {
 	}
 	if err := c.run("validate"); err != nil {
 		restore()
-		return fmt.Errorf("Caddy-Validierung fehlgeschlagen: %w", err)
+		return errf("Caddy-Validierung fehlgeschlagen: %v", err)
 	}
 	if err := c.run("reload"); err != nil {
 		restore()
 		_ = c.run("reload") // best effort: make sure the running config matches the file again
-		return fmt.Errorf("Caddy-Reload fehlgeschlagen: %w", err)
+		return errf("Caddy-Reload fehlgeschlagen: %v", err)
 	}
 	return nil
 }

@@ -1,20 +1,20 @@
 {{define "content"}}
 {{$csrf := .CSRF}}
 {{template "admin-nav" .Path}}
-<h1>Namespaces</h1>
+<h1>{{t "Namespaces"}}</h1>
 <section class="card">
-  <h2>Neuer Namespace</h2>
+  <h2>{{t "Neuer Namespace"}}</h2>
   <form method="post" action="/admin/namespaces" class="row">
     <input type="hidden" name="csrf" value="{{$csrf}}">
-    <label>Domain <input name="domain" placeholder="aaronhosting.xyz" required></label>
-    <button>Anlegen</button>
+    <label>{{t "Domain"}} <input name="domain" placeholder="aaronhosting.xyz" required></label>
+    <button>{{t "Anlegen"}}</button>
   </form>
-  <p class="muted">Mitglieder eines Namespace dürfen beliebige Subdomains darunter anlegen, z.B. <code>social.aaronhosting.xyz</code>. Am einfachsten zeigt ein Wildcard-DNS-Eintrag <code>*.domain</code> auf die Caddy-VM.</p>
+  <p class="muted">{{th "Mitglieder eines Namespace dürfen beliebige Subdomains darunter anlegen, z.B. <code>social.aaronhosting.xyz</code>. Am einfachsten zeigt ein Wildcard-DNS-Eintrag <code>*.domain</code> auf die Caddy-VM."}}</p>
 </section>
 <section class="card">
   {{if .D.Rows}}
   <table>
-    <thead><tr><th>Domain</th><th>Mitglieder</th><th>Proxies</th><th>Angelegt</th><th></th></tr></thead>
+    <thead><tr><th>{{t "Domain"}}</th><th>{{t "Mitglieder"}}</th><th>{{t "Subdomains"}}</th><th>{{t "Angelegt"}}</th><th></th></tr></thead>
     <tbody>
     {{range .D.Rows}}
       <tr>
@@ -24,15 +24,15 @@
         <td class="muted">{{fmtTime .CreatedAt}}</td>
         <td>
           {{if and (not .Users) (eq .Proxies 0)}}
-          <form method="post" action="/admin/namespaces/{{.Domain}}/delete" class="inline" data-confirm="{{.Domain}} wirklich löschen?">
-            <input type="hidden" name="csrf" value="{{$csrf}}"><button class="danger">Löschen</button>
+          <form method="post" action="/admin/namespaces/{{.Domain}}/delete" class="inline" data-confirm="{{tf "%s wirklich löschen?" .Domain}}">
+            <input type="hidden" name="csrf" value="{{$csrf}}"><button class="danger">{{t "Löschen"}}</button>
           </form>
-          {{else}}<span class="muted" title="Erst Benutzer und Proxies entfernen">in Benutzung</span>{{end}}
+          {{else}}<span class="muted" title="{{t "Erst Konten und Subdomains entfernen"}}">{{t "in Benutzung"}}</span>{{end}}
         </td>
       </tr>
     {{end}}
     </tbody>
   </table>
-  {{else}}<p class="muted">Noch keine Namespaces.</p>{{end}}
+  {{else}}<p class="muted">{{t "Noch keine Namespaces."}}</p>{{end}}
 </section>
 {{end}}

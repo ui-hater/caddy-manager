@@ -114,3 +114,9 @@ a.button:hover { text-decoration: none; border-color: var(--accent); }
 .badge.off { background: var(--danger); }
 tr.disabled td > a, tr.disabled code { opacity: .5; }
 [hidden] { display: none !important; }
+
+.foot { display: flex; justify-content: center; gap: 14px; padding: 8px 16px 28px; font-size: 13px; }
+.foot a { color: var(--muted); }
+.foot a.active { color: var(--fg); font-weight: 600; }
+table.headers td:nth-child(3) { width: 30%; }
+table.headers td:nth-child(4) { width: 40%; }

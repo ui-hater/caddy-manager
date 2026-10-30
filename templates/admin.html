@@ -1,59 +1,59 @@
 {{define "content"}}
 {{$csrf := .CSRF}}{{$me := .User}}{{$nss := .D.Namespaces}}
 {{template "admin-nav" .Path}}
-<h1>Admin-Übersicht</h1>
+<h1>{{t "Admin-Übersicht"}}</h1>
 
 <div class="stats">
   <a class="stat" href="/admin/users">
-    <span class="stat-label">Konten</span>
+    <span class="stat-label">{{t "Konten"}}</span>
     <span class="stat-value">{{len .D.Users}}</span>
-    <span class="stat-sub">{{.D.Admins}} Admin{{if ne .D.Admins 1}}s{{end}}{{if .D.Pending}} · {{.D.Pending}} mit Einmal-PW{{end}}</span>
+    <span class="stat-sub">{{tf "%d Admin(s)" .D.Admins}}{{if .D.Pending}} · {{tf "%d mit Einmal-PW" .D.Pending}}{{end}}</span>
   </a>
   <a class="stat" href="/admin/namespaces">
-    <span class="stat-label">Namespaces</span>
+    <span class="stat-label">{{t "Namespaces"}}</span>
     <span class="stat-value">{{len .D.Namespaces}}</span>
-    <span class="stat-sub">Domains</span>
+    <span class="stat-sub">{{t "Domains"}}</span>
   </a>
   <a class="stat" href="/">
-    <span class="stat-label">Subdomains</span>
+    <span class="stat-label">{{t "Subdomains"}}</span>
     <span class="stat-value">{{.D.ProxyCount}}</span>
-    <span class="stat-sub">aktive Weiterleitungen</span>
+    <span class="stat-sub">{{t "eingerichtet"}}</span>
   </a>
   <a class="stat {{if not .D.CaddyInSync}}stat-warn{{end}}" href="/admin/caddy">
-    <span class="stat-label">Caddy</span>
+    <span class="stat-label">{{t "Caddy"}}</span>
     <span class="stat-value">{{if .D.CaddyInSync}}OK{{else}}!{{end}}</span>
-    <span class="stat-sub">{{if .D.CaddyInSync}}Caddyfile aktuell{{else}}Caddyfile weicht ab{{end}}{{if not .D.Settings.Reload}} · Reload aus{{end}}</span>
+    <span class="stat-sub">{{if .D.CaddyInSync}}{{t "Caddyfile aktuell"}}{{else}}{{t "Caddyfile weicht ab"}}{{end}}{{if not .D.Settings.Reload}} · {{t "Reload aus"}}{{end}}</span>
   </a>
 </div>
 
 <div class="grid2">
   <section class="card">
-    <h2>Konto anlegen</h2>
+    <h2>{{t "Konto anlegen"}}</h2>
     <form method="post" action="/admin/users" class="stack">
       <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="back" value="/admin">
-      <label>Benutzername <input name="username" required pattern="[A-Za-z0-9_.\-]{3,32}"></label>
-      <label>Passwort <input type="password" name="password" placeholder="leer = zufälliges Einmal-Passwort" autocomplete="new-password"></label>
-      <label>Namespace
+      <label>{{t "Benutzername"}} <input name="username" required pattern="[A-Za-z0-9_.\-]{3,32}"></label>
+      <label>{{t "Passwort"}} <input type="password" name="password" placeholder="{{t "leer = zufälliges Einmal-Passwort"}}" autocomplete="new-password"></label>
+      <label>{{t "Namespace"}}
         <select name="namespace">
-          <option value="">– keiner –</option>
+          <option value="">– {{t "keiner"}} –</option>
           {{range $nss}}<option value="{{.Domain}}">{{.Domain}}</option>{{end}}
         </select>
       </label>
-      <label class="check"><input type="checkbox" name="is_admin"> Admin-Rechte</label>
-      <div><button>Konto anlegen</button></div>
+      <label class="check"><input type="checkbox" name="is_admin"> {{t "Admin-Rechte"}}</label>
+      <div><button>{{t "Konto anlegen"}}</button></div>
     </form>
   </section>
 
   <section class="card">
-    <h2>Namespace anlegen</h2>
+    <h2>{{t "Namespace anlegen"}}</h2>
     <form method="post" action="/admin/namespaces" class="stack">
       <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="back" value="/admin">
-      <label>Domain <input name="domain" placeholder="aaronhosting.xyz" required></label>
-      <div><button>Namespace anlegen</button></div>
+      <label>{{t "Domain"}} <input name="domain" placeholder="aaronhosting.xyz" required></label>
+      <div><button>{{t "Namespace anlegen"}}</button></div>
     </form>
     {{if .D.NsRows}}
     <table class="compact">
-      <thead><tr><th>Domain</th><th>Konten</th><th>Subdomains</th></tr></thead>
+      <thead><tr><th>{{t "Domain"}}</th><th>{{t "Konten"}}</th><th>{{t "Subdomains"}}</th></tr></thead>
       <tbody>
       {{range .D.NsRows}}
         <tr><td><a href="/?ns={{.Domain}}">{{.Domain}}</a></td><td>{{.Users}}</td><td>{{.Proxies}}</td></tr>
@@ -65,41 +65,41 @@
 </div>
 
 <section class="card">
-  <div class="head"><h2>Konten</h2><a href="/admin/users">Alle Optionen →</a></div>
+  <div class="head"><h2>{{t "Konten"}}</h2><a href="/admin/users">{{t "Alle Optionen"}} →</a></div>
   <table>
-    <thead><tr><th>Benutzer</th><th>Namespace</th><th>Rolle</th><th></th></tr></thead>
+    <thead><tr><th>{{t "Benutzer"}}</th><th>{{t "Namespace"}}</th><th>{{t "Rolle"}}</th><th></th></tr></thead>
     <tbody>
     {{range .D.Users}}{{$u := .}}
       <tr>
-        <td>{{.Username}}{{if .MustChangePassword}} <span class="badge warn">Einmal-PW</span>{{end}}</td>
+        <td>{{.Username}}{{if .MustChangePassword}} <span class="badge warn">{{t "Einmal-PW"}}</span>{{end}}</td>
         <td>
           <form method="post" action="/admin/users/{{.ID}}/namespace" class="inline">
             <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="back" value="/admin">
             <select name="namespace" data-autosubmit>
-              <option value="">– keiner –</option>
+              <option value="">– {{t "keiner"}} –</option>
               {{range $nss}}<option value="{{.Domain}}" {{if eq .Domain $u.Namespace}}selected{{end}}>{{.Domain}}</option>{{end}}
             </select>
-            <noscript><button class="secondary">Setzen</button></noscript>
+            <noscript><button class="secondary">{{t "Setzen"}}</button></noscript>
           </form>
         </td>
         <td>
-          {{if .IsAdmin}}<span class="badge">Admin</span>{{else}}Benutzer{{end}}
+          {{if .IsAdmin}}<span class="badge">{{t "Admin"}}</span>{{else}}{{t "Benutzer"}}{{end}}
           {{if ne .ID $me.ID}}
           <form method="post" action="/admin/users/{{.ID}}/admin" class="inline">
             <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="back" value="/admin">
-            <button class="link">{{if .IsAdmin}}entziehen{{else}}zum Admin{{end}}</button>
+            <button class="link">{{if .IsAdmin}}{{t "entziehen"}}{{else}}{{t "zum Admin"}}{{end}}</button>
           </form>
           {{end}}
         </td>
         <td class="actions">
-          <form method="post" action="/admin/users/{{.ID}}/password" class="inline" data-confirm="Neues Einmal-Passwort für {{.Username}} erzeugen?">
+          <form method="post" action="/admin/users/{{.ID}}/password" class="inline" data-confirm="{{tf "Neues Einmal-Passwort für %s erzeugen?" .Username}}">
             <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="back" value="/admin">
-            <button class="secondary">PW zurücksetzen</button>
+            <button class="secondary">{{t "PW zurücksetzen"}}</button>
           </form>
           {{if ne .ID $me.ID}}
-          <form method="post" action="/admin/users/{{.ID}}/delete" class="inline" data-confirm="{{.Username}} wirklich löschen?">
+          <form method="post" action="/admin/users/{{.ID}}/delete" class="inline" data-confirm="{{tf "%s wirklich löschen?" .Username}}">
             <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="back" value="/admin">
-            <button class="danger">Löschen</button>
+            <button class="danger">{{t "Löschen"}}</button>
           </form>
           {{end}}
         </td>
@@ -110,21 +110,21 @@
 </section>
 
 <section class="card">
-  <div class="head"><h2>Zuletzt angelegte Subdomains</h2><a href="/">Alle verwalten →</a></div>
+  <div class="head"><h2>{{t "Zuletzt angelegte Subdomains"}}</h2><a href="/">{{t "Alle verwalten"}} →</a></div>
   {{if .D.Recent}}
   <table>
-    <thead><tr><th>Subdomain</th><th>Ziel</th><th>Namespace</th><th>Angelegt</th></tr></thead>
+    <thead><tr><th>{{t "Subdomain"}}</th><th>{{t "Ziel"}}</th><th>{{t "Namespace"}}</th><th>{{t "Angelegt"}}</th></tr></thead>
     <tbody>
-    {{range .D.Recent}}
+    {{range .D.Recent}}{{$kind := .Opts.KindOrDefault}}
       <tr>
         <td><a href="https://{{.Host}}" target="_blank" rel="noopener">{{.Host}}</a></td>
-        <td><code>{{.Upstream}}</code></td>
+        <td>{{if eq $kind "redirect"}}↪ <code>{{.Opts.RedirectTo}}</code>{{else if eq $kind "respond"}}<span class="muted">{{tf "Antwort %d:" .Opts.RespondStatus}}</span>{{else}}<code>{{.Upstream}}</code>{{end}}</td>
         <td>{{.Namespace}}</td>
-        <td class="muted">{{fmtTime .CreatedAt}} von {{.CreatedBy}}</td>
+        <td class="muted">{{fmtTime .CreatedAt}} {{tf "von %s" .CreatedBy}}</td>
       </tr>
     {{end}}
     </tbody>
   </table>
-  {{else}}<p class="muted">Noch keine Subdomains.</p>{{end}}
+  {{else}}<p class="muted">{{t "Noch keine Subdomains."}}</p>{{end}}
 </section>
 {{end}}

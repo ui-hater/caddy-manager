@@ -2,121 +2,147 @@
 {{$p := .D.P}}{{$o := $p.Opts}}{{$kind := .D.Kind}}
 <div class="head">
   <h1>{{$p.Host}}</h1>
-  <a href="{{.D.Back}}">← zurück</a>
+  <a href="{{.D.Back}}">← {{t "zurück"}}</a>
 </div>
-{{if not $p.Enabled}}<p class="flash err">Diese Subdomain ist deaktiviert und steht nicht in der Caddyfile.</p>{{end}}
+{{if not $p.Enabled}}<p class="flash err">{{t "Diese Subdomain ist deaktiviert und steht nicht in der Caddyfile."}}</p>{{end}}
 
 <form method="post" action="/proxies/{{$p.ID}}/update" class="site-form">
   <input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="back_ns" value="{{.D.BackNS}}">
 
   <section class="card">
-    <h2>Typ</h2>
+    <h2>{{t "Typ"}}</h2>
     <div class="kinds">
-      <label class="kind"><input type="radio" name="kind" value="proxy" {{if eq $kind "proxy"}}checked{{end}}> <strong>Reverse Proxy</strong><span>Anfragen an eine VM / einen Dienst weiterleiten</span></label>
-      <label class="kind"><input type="radio" name="kind" value="redirect" {{if eq $kind "redirect"}}checked{{end}}> <strong>Weiterleitung</strong><span>Besucher auf eine andere URL schicken</span></label>
-      <label class="kind"><input type="radio" name="kind" value="respond" {{if eq $kind "respond"}}checked{{end}}> <strong>Feste Antwort</strong><span>z.B. Wartungsseite oder Platzhalter</span></label>
+      <label class="kind"><input type="radio" name="kind" value="proxy" {{if eq $kind "proxy"}}checked{{end}}> <strong>{{t "Reverse Proxy"}}</strong><span>{{t "Anfragen an eine VM / einen Dienst weiterleiten"}}</span></label>
+      <label class="kind"><input type="radio" name="kind" value="redirect" {{if eq $kind "redirect"}}checked{{end}}> <strong>{{t "Weiterleitung"}}</strong><span>{{t "Besucher auf eine andere URL schicken"}}</span></label>
+      <label class="kind"><input type="radio" name="kind" value="respond" {{if eq $kind "respond"}}checked{{end}}> <strong>{{t "Feste Antwort"}}</strong><span>{{t "z.B. Wartungsseite oder Platzhalter"}}</span></label>
     </div>
   </section>
 
   <section class="card" data-kind="proxy">
-    <h2>Reverse Proxy</h2>
+    <h2>{{t "Reverse Proxy"}}</h2>
     <div class="stack">
-      <label>Ziel(e)
+      <label>{{t "Ziel(e)"}}
         <textarea name="upstream" rows="2" placeholder="10.0.0.12:8080">{{$p.Upstream}}</textarea>
-        <small>Ein Ziel pro Zeile oder durch Leerzeichen getrennt, z.B. <code>10.0.0.12:8080</code> oder <code>https://10.0.0.5:8006</code>. Mehrere Ziele = Load-Balancing.</small>
+        <small>{{th "Ein Ziel pro Zeile oder durch Leerzeichen getrennt, z.B. <code>10.0.0.12:8080</code> oder <code>https://10.0.0.5:8006</code>. Mehrere Ziele = Load-Balancing."}}</small>
       </label>
       <div class="row">
-        <label>Load-Balancing
+        <label>{{t "Load-Balancing"}}
           <select name="lb_policy">
-            <option value="">Standard (random)</option>
+            <option value="">{{t "Standard (random)"}}</option>
             {{range .D.LBPolicies}}<option value="{{.}}" {{if eq . $o.LBPolicy}}selected{{end}}>{{.}}</option>{{end}}
           </select>
         </label>
-        <label>Health-Check-Pfad <input name="health_uri" value="{{$o.HealthURI}}" placeholder="/health"></label>
+        <label>{{t "Health-Check-Pfad"}} <input name="health_uri" value="{{$o.HealthURI}}" placeholder="/health"></label>
       </div>
-      <label class="check"><input type="checkbox" name="tls_skip_verify" {{if $o.TLSSkipVerify}}checked{{end}}> Zertifikat des HTTPS-Ziels nicht prüfen (selbstsigniert, z.B. Proxmox)</label>
-      <label class="check"><input type="checkbox" name="host_header" {{if $o.HostHeader}}checked{{end}}> Host-Header auf das Ziel setzen (für Dienste, die ihren eigenen Hostnamen erwarten)</label>
+      <label class="check"><input type="checkbox" name="tls_skip_verify" {{if $o.TLSSkipVerify}}checked{{end}}> {{t "Zertifikat des HTTPS-Ziels nicht prüfen (selbstsigniert, z.B. Proxmox)"}}</label>
+      <label class="check"><input type="checkbox" name="host_header" {{if $o.HostHeader}}checked{{end}}> {{t "Host-Header auf das Ziel setzen (für Dienste, die ihren eigenen Hostnamen erwarten)"}}</label>
     </div>
 
-    <h3>Pfad-Routen</h3>
-    <p class="muted">Bestimmte Pfade an ein anderes Ziel schicken, z.B. <code>/api</code> → <code>10.0.0.13:9000</code>. Alles andere geht an das Ziel oben.</p>
+    <h3>{{t "Pfad-Routen"}}</h3>
+    <p class="muted">{{th "Bestimmte Pfade an ein anderes Ziel schicken, z.B. <code>/api</code> → <code>10.0.0.13:9000</code>. Alles andere geht an das Ziel oben."}}</p>
     <table class="routes">
-      <thead><tr><th>Pfad</th><th>Ziel</th><th>Präfix</th></tr></thead>
+      <thead><tr><th>{{t "Pfad"}}</th><th>{{t "Ziel"}}</th><th>{{t "Präfix"}}</th></tr></thead>
       <tbody>
       {{range .D.Routes}}
         <tr>
           <td><input name="route_path" value="{{.Path}}" placeholder="/api"></td>
           <td><input name="route_upstream" value="{{.Upstream}}" placeholder="10.0.0.13:9000"></td>
           <td><select name="route_strip">
-            <option value="0" {{if not .Strip}}selected{{end}}>behalten</option>
-            <option value="1" {{if .Strip}}selected{{end}}>entfernen</option>
+            <option value="0" {{if not .Strip}}selected{{end}}>{{t "behalten"}}</option>
+            <option value="1" {{if .Strip}}selected{{end}}>{{t "entfernen"}}</option>
           </select></td>
         </tr>
       {{end}}
       </tbody>
     </table>
-    <p class="muted">Leere Zeilen werden ignoriert; zum Löschen einer Route die Felder leeren. Nach dem Speichern erscheinen wieder zwei freie Zeilen.</p>
+    <p class="muted">{{t "Leere Zeilen werden ignoriert; zum Löschen einer Route die Felder leeren. Nach dem Speichern erscheinen wieder zwei freie Zeilen."}}</p>
   </section>
 
   <section class="card" data-kind="redirect">
-    <h2>Weiterleitung</h2>
+    <h2>{{t "Weiterleitung"}}</h2>
     <div class="stack">
-      <label>Ziel-URL <input name="redirect_to" value="{{$o.RedirectTo}}" placeholder="https://www.example.com"></label>
+      <label>{{t "Ziel-URL"}} <input name="redirect_to" value="{{$o.RedirectTo}}" placeholder="https://www.example.com"></label>
       <div class="row">
-        <label>Art
+        <label>{{t "Art"}}
           <select name="redirect_code">
-            {{range .D.RedirCodes}}<option value="{{.}}" {{if eq . $o.RedirectCode}}selected{{end}}>{{.}}{{if eq . 301}} (dauerhaft){{else if eq . 302}} (temporär){{end}}</option>{{end}}
+            {{range .D.RedirCodes}}<option value="{{.}}" {{if eq . $o.RedirectCode}}selected{{end}}>{{.}}{{if eq . 301}} ({{t "dauerhaft"}}){{else if eq . 302}} ({{t "temporär"}}){{end}}</option>{{end}}
           </select>
         </label>
-        <label class="check"><input type="checkbox" name="redirect_keep_path" {{if $o.RedirectKeepPath}}checked{{end}}> Pfad anhängen (<code>/x?y</code> → <code>ziel/x?y</code>)</label>
+        <label class="check"><input type="checkbox" name="redirect_keep_path" {{if $o.RedirectKeepPath}}checked{{end}}> {{th "Pfad anhängen (<code>/x?y</code> → <code>ziel/x?y</code>)"}}</label>
       </div>
     </div>
   </section>
 
   <section class="card" data-kind="respond">
-    <h2>Feste Antwort</h2>
+    <h2>{{t "Feste Antwort"}}</h2>
     <div class="row">
-      <label>Statuscode <input name="respond_status" type="number" min="200" max="599" value="{{if $o.RespondStatus}}{{$o.RespondStatus}}{{else}}503{{end}}"></label>
-      <label class="grow">Text <input name="respond_body" value="{{$o.RespondBody}}" placeholder="Wartungsarbeiten – bald wieder da"></label>
+      <label>{{t "Statuscode"}} <input name="respond_status" type="number" min="200" max="599" value="{{if $o.RespondStatus}}{{$o.RespondStatus}}{{else}}503{{end}}"></label>
+      <label class="grow">{{t "Text"}} <input name="respond_body" value="{{$o.RespondBody}}" placeholder="{{t "Wartungsarbeiten – bald wieder da"}}"></label>
     </div>
   </section>
 
   <section class="card">
-    <h2>Zugriff</h2>
+    <h2>{{t "HTTP-Header"}}</h2>
+    <p class="muted">{{th "<strong>Antwort</strong>: Header, die der Besucher bekommt (überschreibt auch Header vom Ziel). <strong>Anfrage</strong>: Header, die an das Ziel geschickt werden (nur Reverse Proxy)."}}</p>
+    <table class="routes headers">
+      <thead><tr><th>{{t "Richtung"}}</th><th>{{t "Aktion"}}</th><th>{{t "Name"}}</th><th>{{t "Wert"}}</th></tr></thead>
+      <tbody>
+      {{range .D.Headers}}
+        <tr>
+          <td><select name="hdr_target">
+            <option value="response" {{if eq .Target "response"}}selected{{end}}>{{t "Antwort"}}</option>
+            <option value="request" {{if eq .Target "request"}}selected{{end}}>{{t "Anfrage"}}</option>
+          </select></td>
+          <td><select name="hdr_op">
+            <option value="set" {{if eq .Op "set"}}selected{{end}}>{{t "setzen"}}</option>
+            <option value="add" {{if eq .Op "add"}}selected{{end}}>{{t "hinzufügen"}}</option>
+            <option value="delete" {{if eq .Op "delete"}}selected{{end}}>{{t "entfernen"}}</option>
+          </select></td>
+          <td><input name="hdr_name" value="{{.Name}}" placeholder="X-Frame-Options"></td>
+          <td><input name="hdr_value" value="{{.Value}}" placeholder="SAMEORIGIN"></td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    <p class="muted">{{t "Zum Löschen einer Regel den Namen leeren. Werte dürfen keine Anführungszeichen, Backslashes oder { } enthalten."}}</p>
+  </section>
+
+  <section class="card">
+    <h2>{{t "Zugriff"}}</h2>
     <div class="stack">
       <div class="row">
-        <label>Passwortschutz: Benutzer <input name="auth_user" value="{{$o.BasicAuthUser}}" autocomplete="off" placeholder="leer = kein Passwortschutz"></label>
-        <label>Passwort <input type="password" name="auth_password" autocomplete="new-password" placeholder="{{if $o.BasicAuthHash}}unverändert lassen{{else}}min. 8 Zeichen{{end}}"></label>
+        <label>{{t "Passwortschutz: Benutzer"}} <input name="auth_user" value="{{$o.BasicAuthUser}}" autocomplete="off" placeholder="{{t "leer = kein Passwortschutz"}}"></label>
+        <label>{{t "Passwort"}} <input type="password" name="auth_password" autocomplete="new-password" placeholder="{{if $o.BasicAuthHash}}{{t "unverändert lassen"}}{{else}}{{t "min. 8 Zeichen"}}{{end}}"></label>
       </div>
-      <label>Nur diese IPs / Netze erlauben
-        <textarea name="allow_ips" rows="2" placeholder="leer = alle erlaubt">{{.D.AllowIPs}}</textarea>
-        <small>Eine pro Zeile, z.B. <code>192.168.1.0/24</code> oder <code>private_ranges</code> für alle privaten Netze (LAN/VPN).</small>
+      <label>{{t "Nur diese IPs / Netze erlauben"}}
+        <textarea name="allow_ips" rows="2" placeholder="{{t "leer = alle erlaubt"}}">{{.D.AllowIPs}}</textarea>
+        <small>{{th "Eine pro Zeile, z.B. <code>192.168.1.0/24</code> oder <code>private_ranges</code> für alle privaten Netze (LAN/VPN)."}}</small>
       </label>
     </div>
   </section>
 
   <section class="card">
-    <h2>Optionen</h2>
+    <h2>{{t "Optionen"}}</h2>
     <div class="stack">
-      <label class="check"><input type="checkbox" name="compress" {{if $o.Compress}}checked{{end}}> Komprimierung (zstd / gzip)</label>
-      <label class="check"><input type="checkbox" name="hsts" {{if $o.HSTS}}checked{{end}}> HSTS-Header (Browser erzwingen dauerhaft HTTPS)</label>
-      <label class="check"><input type="checkbox" name="access_log" {{if $o.AccessLog}}checked{{end}}> Zugriffslog</label>
+      <label class="check"><input type="checkbox" name="compress" {{if $o.Compress}}checked{{end}}> {{t "Komprimierung (zstd / gzip)"}}</label>
+      <label class="check"><input type="checkbox" name="hsts" {{if $o.HSTS}}checked{{end}}> {{t "HSTS-Header (Browser erzwingen dauerhaft HTTPS)"}}</label>
+      <label class="check"><input type="checkbox" name="access_log" {{if $o.AccessLog}}checked{{end}}> {{t "Zugriffslog"}}</label>
     </div>
   </section>
 
   {{if .User.IsAdmin}}
   <section class="card">
-    <h2>Eigene Caddy-Direktiven <span class="badge">nur Admin</span></h2>
+    <h2>{{t "Eigene Caddy-Direktiven"}} <span class="badge">{{t "nur Admin"}}</span></h2>
     <textarea name="extra" rows="5" class="mono" placeholder="header X-Robots-Tag noindex">{{$o.Extra}}</textarea>
-    <p class="muted">Wird unverändert in den Site-Block geschrieben und von <code>caddy validate</code> geprüft.</p>
+    <p class="muted">{{th "Wird unverändert in den Site-Block geschrieben und von <code>caddy validate</code> geprüft."}}</p>
   </section>
   {{else if $o.Extra}}
-  <p class="muted">Diese Subdomain enthält zusätzliche Direktiven vom Admin.</p>
+  <p class="muted">{{t "Diese Subdomain enthält zusätzliche Direktiven vom Admin."}}</p>
   {{end}}
 
   <div class="actions-bar">
-    <button>Speichern &amp; Caddy neu laden</button>
-    <a href="{{.D.Back}}">Abbrechen</a>
+    <button>{{t "Speichern & Caddy neu laden"}}</button>
+    <a href="{{.D.Back}}">{{t "Abbrechen"}}</a>
   </div>
 </form>
 {{end}}

@@ -410,6 +410,31 @@ func TestEditSite(t *testing.T) {
 		t.Fatal("unausgeglichene klammern akzeptiert")
 	}
 
+	// HTTP headers via the form; empty name rows are ignored
+	hform := url.Values{
+		"kind": {"proxy"}, "upstream": {"10.0.0.1:80"},
+		"hdr_target": {"response", "request", "response"},
+		"hdr_op":     {"set", "delete", "set"},
+		"hdr_name":   {"X-Frame-Options", "Cookie", ""},
+		"hdr_value":  {"DENY", "", ""},
+	}
+	if b := bob.post("/proxies/"+id+"/update", hform); !strings.Contains(b, "gespeichert") {
+		t.Fatalf("header speichern fehlgeschlagen: %s", regexp.MustCompile(`class="flash[^<]*<`).FindString(b))
+	}
+	if p, _ = app.store.ProxyByID(atoi(id)); len(p.Opts.Headers) != 2 {
+		t.Fatalf("header nicht gespeichert: %+v", p.Opts.Headers)
+	}
+	if cf, _ = os.ReadFile(caddyfile); !strings.Contains(string(cf), `X-Frame-Options "DENY"`) || !strings.Contains(string(cf), "header_up -Cookie") {
+		t.Fatalf("header fehlen in caddyfile:\n%s", cf)
+	}
+	hform["hdr_value"] = []string{"{env.SECRET}", "", ""}
+	if b := bob.post("/proxies/"+id+"/update", hform); !strings.Contains(b, "flash err") {
+		t.Fatal("platzhalter im header-wert akzeptiert")
+	}
+	if b := bob.get("/proxies/" + id); !strings.Contains(b, `value="X-Frame-Options"`) {
+		t.Fatal("header nicht im formular")
+	}
+
 	// redirect, then disable
 	bob.post("/proxies/"+id+"/update", url.Values{"kind": {"redirect"}, "redirect_to": {"https://proxmox.example.com"}, "redirect_code": {"301"}})
 	if cf, _ = os.ReadFile(caddyfile); !strings.Contains(string(cf), "redir https://proxmox.example.com 301") {

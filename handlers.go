@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/subtle"
-	"errors"
 	"html/template"
 	"io/fs"
 	"log"
@@ -12,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
-	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -22,7 +20,7 @@ type App struct {
 	caddy    *Caddy
 	sessions *Sessions
 	limiter  *LoginLimiter
-	pages    map[string]*template.Template
+	pages    map[string]map[string]*template.Template // language -> page -> template
 
 	setupDone atomic.Bool
 }
@@ -34,6 +32,8 @@ type ctxUser struct {
 }
 
 type PageData struct {
+	Lang  string
+	Langs []string
 	Title string
 	User  *User
 	CSRF  string
@@ -42,33 +42,33 @@ type PageData struct {
 	D     map[string]any
 }
 
-func loadPages(tfs fs.FS) (map[string]*template.Template, error) {
-	funcs := template.FuncMap{
-		"fmtTime":     func(t time.Time) string { return t.Local().Format("02.01.2006 15:04") },
-		"hasPrefix":   strings.HasPrefix,
-		"splitFields": strings.Fields,
-	}
+func loadPages(tfs fs.FS) (map[string]map[string]*template.Template, error) {
 	names, err := fs.Glob(tfs, "templates/*.html")
 	if err != nil {
 		return nil, err
 	}
-	pages := map[string]*template.Template{}
-	for _, n := range names {
-		base := strings.TrimSuffix(strings.TrimPrefix(n, "templates/"), ".html")
-		if base == "layout" || base == "partials" {
-			continue
+	all := map[string]map[string]*template.Template{}
+	for _, lang := range languages {
+		pages := map[string]*template.Template{}
+		for _, n := range names {
+			base := strings.TrimSuffix(strings.TrimPrefix(n, "templates/"), ".html")
+			if base == "layout" || base == "partials" {
+				continue
+			}
+			t, err := template.New("layout.html").Funcs(templateFuncs(lang)).ParseFS(tfs, "templates/layout.html", "templates/partials.html", n)
+			if err != nil {
+				return nil, err
+			}
+			pages[base] = t
 		}
-		t, err := template.New("layout.html").Funcs(funcs).ParseFS(tfs, "templates/layout.html", "templates/partials.html", n)
-		if err != nil {
-			return nil, err
-		}
-		pages[base] = t
+		all[lang] = pages
 	}
-	return pages, nil
+	return all, nil
 }
 
 func (a *App) render(w http.ResponseWriter, r *http.Request, cu *ctxUser, page, title string, d map[string]any) {
-	pd := PageData{Title: title, Path: r.URL.Path, D: d}
+	lang := langFromRequest(r)
+	pd := PageData{Lang: lang, Langs: languages, Title: T(lang, title), Path: r.URL.Path, D: d}
 	if cu != nil {
 		pd.User = &cu.User
 		pd.CSRF = cu.Session.CSRF
@@ -77,9 +77,9 @@ func (a *App) render(w http.ResponseWriter, r *http.Request, cu *ctxUser, page, 
 	if f, ok := d["flash"].(*Flash); ok {
 		pd.Flash = f
 	}
-	t := a.pages[page]
+	t := a.pages[lang][page]
 	if t == nil {
-		http.Error(w, "template fehlt: "+page, 500)
+		http.Error(w, "template missing: "+page, 500)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -88,11 +88,20 @@ func (a *App) render(w http.ResponseWriter, r *http.Request, cu *ctxUser, page, 
 	}
 }
 
-func (a *App) redirect(w http.ResponseWriter, r *http.Request, cu *ctxUser, to, kind, msg string) {
-	if cu != nil && msg != "" {
-		a.sessions.SetFlash(cu.Session, kind, msg)
-	}
+// ok redirects with a translated success message.
+func (a *App) ok(w http.ResponseWriter, r *http.Request, cu *ctxUser, to, format string, args ...any) {
+	a.sessions.SetFlash(cu.Session, "ok", Tf(langFromRequest(r), format, args...))
 	http.Redirect(w, r, to, http.StatusSeeOther)
+}
+
+// fail redirects with a translated error message.
+func (a *App) fail(w http.ResponseWriter, r *http.Request, cu *ctxUser, to string, err error) {
+	a.sessions.SetFlash(cu.Session, "err", trErr(langFromRequest(r), err))
+	http.Redirect(w, r, to, http.StatusSeeOther)
+}
+
+func errFlash(r *http.Request, err error) *Flash {
+	return &Flash{Kind: "err", Msg: trErr(langFromRequest(r), err)}
 }
 
 // ---- middleware ----
@@ -100,7 +109,7 @@ func (a *App) redirect(w http.ResponseWriter, r *http.Request, cu *ctxUser, to, 
 // requireSetup sends every request to /setup until the first admin exists.
 func (a *App) requireSetup(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !a.setupDone.Load() && r.URL.Path != "/setup" && !strings.HasPrefix(r.URL.Path, "/static/") {
+		if !a.setupDone.Load() && r.URL.Path != "/setup" && !strings.HasPrefix(r.URL.Path, "/static/") && !strings.HasPrefix(r.URL.Path, "/lang/") {
 			http.Redirect(w, r, "/setup", http.StatusSeeOther)
 			return
 		}
@@ -143,17 +152,17 @@ func (a *App) auth(admin bool, h authedHandler) http.HandlerFunc {
 		}
 		if r.Method == http.MethodPost {
 			if subtle.ConstantTimeCompare([]byte(r.FormValue("csrf")), []byte(sess.CSRF)) != 1 {
-				http.Error(w, "ungültiges CSRF-Token", http.StatusForbidden)
+				http.Error(w, T(langFromRequest(r), "ungültiges CSRF-Token"), http.StatusForbidden)
 				return
 			}
 		}
 		cu := &ctxUser{User: u, Session: sess, Token: tok}
 		if u.MustChangePassword && !strings.HasPrefix(r.URL.Path, "/account") && r.URL.Path != "/logout" {
-			a.redirect(w, r, cu, "/account", "err", "Bitte zuerst ein neues Passwort setzen.")
+			a.fail(w, r, cu, "/account", errf("Bitte zuerst ein neues Passwort setzen."))
 			return
 		}
 		if admin && !u.IsAdmin {
-			http.Error(w, "Nur für Administratoren", http.StatusForbidden)
+			http.Error(w, T(langFromRequest(r), "Nur für Administratoren"), http.StatusForbidden)
 			return
 		}
 		h(w, r, cu)
@@ -164,6 +173,7 @@ func (a *App) Routes(static fs.FS) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /static/", http.FileServerFS(static))
 
+	mux.HandleFunc("GET /lang/{lang}", a.setLang)
 	mux.HandleFunc("GET /setup", a.setupPage)
 	mux.HandleFunc("POST /setup", a.setupPost)
 	mux.HandleFunc("GET /login", a.loginPage)
@@ -215,14 +225,14 @@ var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("dummy-password"), bcrypt.
 
 func (a *App) loginPost(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
-	fail := func(msg string) {
+	loginFail := func(msg string) {
 		w.WriteHeader(http.StatusUnauthorized)
 		a.render(w, r, nil, "login", "Anmelden", map[string]any{
-			"flash": &Flash{Kind: "err", Msg: msg}, "username": r.FormValue("username"),
+			"flash": &Flash{Kind: "err", Msg: T(langFromRequest(r), msg)}, "username": r.FormValue("username"),
 		})
 	}
 	if a.limiter.Blocked(ip) {
-		fail("Zu viele Fehlversuche. Bitte in einigen Minuten erneut versuchen.")
+		loginFail("Zu viele Fehlversuche. Bitte in einigen Minuten erneut versuchen.")
 		return
 	}
 	u, err := a.store.UserByName(strings.TrimSpace(r.FormValue("username")))
@@ -232,7 +242,7 @@ func (a *App) loginPost(w http.ResponseWriter, r *http.Request) {
 	}
 	if bcrypt.CompareHashAndPassword(hash, []byte(r.FormValue("password"))) != nil || err != nil {
 		a.limiter.Fail(ip)
-		fail("Benutzername oder Passwort falsch.")
+		loginFail("Benutzername oder Passwort falsch.")
 		return
 	}
 	a.limiter.Success(ip)
@@ -281,10 +291,10 @@ func targetNamespace(cu *ctxUser, requested string) (string, error) {
 		if cu.User.Namespace != "" {
 			return cu.User.Namespace, nil
 		}
-		return "", errors.New("Bitte einen Namespace wählen")
+		return "", errf("Bitte einen Namespace wählen")
 	}
 	if cu.User.Namespace == "" {
-		return "", errors.New("Deinem Konto ist kein Namespace zugewiesen")
+		return "", errf("Deinem Konto ist kein Namespace zugewiesen")
 	}
 	return cu.User.Namespace, nil
 }
@@ -308,37 +318,37 @@ func (a *App) proxyCreate(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
 	back := backTo(r)
 	ns, err := targetNamespace(cu, r.FormValue("namespace"))
 	if err != nil {
-		a.redirect(w, r, cu, back, "err", err.Error())
+		a.fail(w, r, cu, back, err)
 		return
 	}
 	if !a.store.NamespaceExists(ns) {
-		a.redirect(w, r, cu, back, "err", "Namespace existiert nicht")
+		a.fail(w, r, cu, back, errf("Namespace existiert nicht"))
 		return
 	}
 	host, err := buildHost(r.FormValue("subdomain"), ns)
 	if err != nil {
-		a.redirect(w, r, cu, back, "err", err.Error())
+		a.fail(w, r, cu, back, err)
 		return
 	}
 	up, err := normalizeUpstreams(r.FormValue("upstream"))
 	if err != nil {
-		a.redirect(w, r, cu, back, "err", err.Error())
+		a.fail(w, r, cu, back, err)
 		return
 	}
 	p, err := a.applyChange(ProxyChange{Add: &Proxy{Namespace: ns, Host: host, Upstream: up, Enabled: true, CreatedBy: cu.User.Username}})
 	if err != nil {
-		a.redirect(w, r, cu, back, "err", err.Error())
+		a.fail(w, r, cu, back, err)
 		return
 	}
 	log.Printf("%s: proxy %s -> %s angelegt", cu.User.Username, p.Host, p.Upstream)
-	a.redirect(w, r, cu, back, "ok", p.Host+" angelegt und Caddy neu geladen. Weitere Optionen unter „Bearbeiten“.")
+	a.ok(w, r, cu, back, "%s angelegt und Caddy neu geladen. Weitere Optionen unter „Bearbeiten“.", p.Host)
 }
 
 func (a *App) proxyFromPath(w http.ResponseWriter, r *http.Request, cu *ctxUser) (Proxy, bool) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	p, err := a.store.ProxyByID(id)
 	if err != nil || !a.canEdit(cu, p) {
-		a.redirect(w, r, cu, backTo(r), "err", "Subdomain nicht gefunden")
+		a.fail(w, r, cu, backTo(r), errf("Subdomain nicht gefunden"))
 		return Proxy{}, false
 	}
 	return p, true
@@ -355,10 +365,13 @@ func (a *App) proxyEditPage(w http.ResponseWriter, r *http.Request, cu *ctxUser)
 func (a *App) renderProxyEdit(w http.ResponseWriter, r *http.Request, cu *ctxUser, p Proxy, flash *Flash) {
 	// two empty rows for new path routes
 	routes := append(append([]Route(nil), p.Opts.Routes...), Route{}, Route{})
+	headers := append(append([]HeaderRule(nil), p.Opts.Headers...),
+		HeaderRule{Target: HeaderResponse, Op: HeaderSet}, HeaderRule{Target: HeaderResponse, Op: HeaderSet})
 	d := map[string]any{
 		"P":          p,
 		"Kind":       p.Opts.KindOrDefault(),
 		"Routes":     routes,
+		"Headers":    headers,
 		"AllowIPs":   strings.Join(p.Opts.AllowIPs, "\n"),
 		"LBPolicies": lbPolicies,
 		"RedirCodes": redirCodes,
@@ -368,7 +381,7 @@ func (a *App) renderProxyEdit(w http.ResponseWriter, r *http.Request, cu *ctxUse
 	if flash != nil {
 		d["flash"] = flash
 	}
-	a.render(w, r, cu, "proxy", p.Host, d)
+	a.render(w, r, cu, "proxy", "Subdomain bearbeiten", d)
 }
 
 // applySiteForm updates p from the edit form. Enabled is not touched here.
@@ -376,7 +389,7 @@ func applySiteForm(r *http.Request, isAdmin bool, p *Proxy) error {
 	o := p.Opts
 	kind := r.FormValue("kind")
 	if !oneOf(kind, []string{KindProxy, KindRedirect, KindRespond}) {
-		return errors.New("unbekannter Typ")
+		return errf("unbekannter Typ")
 	}
 	o.Kind = kind
 	if kind == KindProxy {
@@ -392,7 +405,7 @@ func applySiteForm(r *http.Request, isAdmin bool, p *Proxy) error {
 		p.Upstream = up
 		o.LBPolicy = r.FormValue("lb_policy")
 		if o.LBPolicy != "" && !oneOf(o.LBPolicy, lbPolicies) {
-			return errors.New("unbekannte Load-Balancing-Strategie")
+			return errf("unbekannte Load-Balancing-Strategie")
 		}
 		if o.HealthURI, err = normalizeHealthURI(r.FormValue("health_uri")); err != nil {
 			return err
@@ -410,16 +423,16 @@ func applySiteForm(r *http.Request, isAdmin bool, p *Proxy) error {
 				return err
 			}
 			if i >= len(ups) {
-				return errors.New("Ziel für Pfad " + rp + " fehlt")
+				return errf("Ziel für Pfad %s fehlt", rp)
 			}
 			ru, err := normalizeUpstreams(ups[i])
 			if err != nil {
-				return errors.New(rp + ": " + err.Error())
+				return errf("%s: %v", rp, err)
 			}
 			o.Routes = append(o.Routes, Route{Path: rp, Upstream: ru, Strip: i < len(strips) && strips[i] == "1"})
 		}
 		if len(o.Routes) > 32 {
-			return errors.New("Höchstens 32 Pfad-Routen")
+			return errf("Höchstens 32 Pfad-Routen")
 		}
 	case KindRedirect:
 		to, err := normalizeRedirect(r.FormValue("redirect_to"))
@@ -439,7 +452,7 @@ func applySiteForm(r *http.Request, isAdmin bool, p *Proxy) error {
 		}
 		o.RespondStatus, _ = strconv.Atoi(r.FormValue("respond_status"))
 		if o.RespondStatus < 200 || o.RespondStatus > 599 {
-			return errors.New("Statuscode muss zwischen 200 und 599 liegen")
+			return errf("Statuscode muss zwischen 200 und 599 liegen")
 		}
 	}
 
@@ -450,10 +463,10 @@ func applySiteForm(r *http.Request, isAdmin bool, p *Proxy) error {
 	case user == "":
 		o.BasicAuthUser, o.BasicAuthHash = "", ""
 	case !authUserRe.MatchString(user):
-		return errors.New("Benutzername für Passwortschutz: nur Buchstaben, Ziffern, _ . @ -")
+		return errf("Benutzername für Passwortschutz: nur Buchstaben, Ziffern, _ . @ -")
 	case pw != "":
 		if len(pw) < 8 || len(pw) > 72 {
-			return errors.New("Passwort für Passwortschutz: 8–72 Zeichen")
+			return errf("Passwort für Passwortschutz: 8–72 Zeichen")
 		}
 		h, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost)
 		if err != nil {
@@ -461,7 +474,7 @@ func applySiteForm(r *http.Request, isAdmin bool, p *Proxy) error {
 		}
 		o.BasicAuthUser, o.BasicAuthHash = user, string(h)
 	case o.BasicAuthHash == "":
-		return errors.New("Bitte ein Passwort für den Passwortschutz setzen")
+		return errf("Bitte ein Passwort für den Passwortschutz setzen")
 	default:
 		o.BasicAuthUser = user // keep existing hash
 	}
@@ -474,10 +487,36 @@ func applySiteForm(r *http.Request, isAdmin bool, p *Proxy) error {
 	o.HSTS = r.FormValue("hsts") == "on"
 	o.AccessLog = r.FormValue("access_log") == "on"
 
+	o.Headers = nil
+	targets, ops, names, values := r.Form["hdr_target"], r.Form["hdr_op"], r.Form["hdr_name"], r.Form["hdr_value"]
+	for i := range names {
+		if strings.TrimSpace(names[i]) == "" {
+			continue
+		}
+		h := HeaderRule{Name: names[i]}
+		if i < len(targets) {
+			h.Target = targets[i]
+		}
+		if i < len(ops) {
+			h.Op = ops[i]
+		}
+		if i < len(values) {
+			h.Value = values[i]
+		}
+		h, err := normalizeHeader(h)
+		if err != nil {
+			return err
+		}
+		o.Headers = append(o.Headers, h)
+	}
+	if len(o.Headers) > 32 {
+		return errf("Höchstens 32 Header-Regeln")
+	}
+
 	if isAdmin {
 		o.Extra = strings.ReplaceAll(strings.TrimSpace(r.FormValue("extra")), "\r\n", "\n")
 		if len(o.Extra) > 4000 {
-			return errors.New("Eigene Direktiven: höchstens 4000 Zeichen")
+			return errf("Eigene Direktiven: höchstens 4000 Zeichen")
 		}
 		if err := validateExtra(o.Extra); err != nil {
 			return err
@@ -494,16 +533,16 @@ func (a *App) proxyUpdate(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
 	}
 	if err := applySiteForm(r, cu.User.IsAdmin, &p); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		a.renderProxyEdit(w, r, cu, p, &Flash{Kind: "err", Msg: err.Error()})
+		a.renderProxyEdit(w, r, cu, p, errFlash(r, err))
 		return
 	}
 	if _, err := a.applyChange(ProxyChange{Update: &p}); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		a.renderProxyEdit(w, r, cu, p, &Flash{Kind: "err", Msg: err.Error()})
+		a.renderProxyEdit(w, r, cu, p, errFlash(r, err))
 		return
 	}
 	log.Printf("%s: %s geändert", cu.User.Username, p.Host)
-	a.redirect(w, r, cu, backTo(r), "ok", p.Host+" gespeichert und Caddy neu geladen.")
+	a.ok(w, r, cu, backTo(r), "%s gespeichert und Caddy neu geladen.", p.Host)
 }
 
 func (a *App) proxyToggle(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
@@ -513,15 +552,15 @@ func (a *App) proxyToggle(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
 	}
 	p.Enabled = !p.Enabled
 	if _, err := a.applyChange(ProxyChange{Update: &p}); err != nil {
-		a.redirect(w, r, cu, backTo(r), "err", err.Error())
+		a.fail(w, r, cu, backTo(r), err)
 		return
 	}
-	state := "deaktiviert"
+	log.Printf("%s: %s enabled=%v", cu.User.Username, p.Host, p.Enabled)
 	if p.Enabled {
-		state = "aktiviert"
+		a.ok(w, r, cu, backTo(r), "%s aktiviert.", p.Host)
+	} else {
+		a.ok(w, r, cu, backTo(r), "%s deaktiviert.", p.Host)
 	}
-	log.Printf("%s: %s %s", cu.User.Username, p.Host, state)
-	a.redirect(w, r, cu, backTo(r), "ok", p.Host+" "+state+".")
 }
 
 func (a *App) proxyDelete(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
@@ -530,11 +569,11 @@ func (a *App) proxyDelete(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
 		return
 	}
 	if _, err := a.applyChange(ProxyChange{Delete: p.ID}); err != nil {
-		a.redirect(w, r, cu, backTo(r), "err", err.Error())
+		a.fail(w, r, cu, backTo(r), err)
 		return
 	}
 	log.Printf("%s: proxy %s gelöscht", cu.User.Username, p.Host)
-	a.redirect(w, r, cu, backTo(r), "ok", p.Host+" gelöscht.")
+	a.ok(w, r, cu, backTo(r), "%s gelöscht.", p.Host)
 }
 
 // ---- account ----
@@ -545,24 +584,24 @@ func (a *App) accountPage(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
 
 func (a *App) accountPassword(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
 	if bcrypt.CompareHashAndPassword([]byte(cu.User.PasswordHash), []byte(r.FormValue("current"))) != nil {
-		a.redirect(w, r, cu, "/account", "err", "Aktuelles Passwort ist falsch.")
+		a.fail(w, r, cu, "/account", errf("Aktuelles Passwort ist falsch."))
 		return
 	}
 	pw := r.FormValue("new")
 	if pw != r.FormValue("confirm") {
-		a.redirect(w, r, cu, "/account", "err", "Die neuen Passwörter stimmen nicht überein.")
+		a.fail(w, r, cu, "/account", errf("Die neuen Passwörter stimmen nicht überein."))
 		return
 	}
 	if pw == r.FormValue("current") {
-		a.redirect(w, r, cu, "/account", "err", "Das neue Passwort muss sich vom alten unterscheiden.")
+		a.fail(w, r, cu, "/account", errf("Das neue Passwort muss sich vom alten unterscheiden."))
 		return
 	}
 	if err := a.setPassword(cu.User.ID, pw, false); err != nil {
-		a.redirect(w, r, cu, "/account", "err", err.Error())
+		a.fail(w, r, cu, "/account", err)
 		return
 	}
 	a.sessions.DestroyUser(cu.User.ID, cu.Token)
-	a.redirect(w, r, cu, "/", "ok", "Passwort geändert.")
+	a.ok(w, r, cu, "/", "Passwort geändert.")
 }
 
 func (a *App) setPassword(id int64, pw string, mustChange bool) error {
@@ -660,7 +699,7 @@ func randomPassword() string { return randToken()[:16] }
 func (a *App) userCreate(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
 	name := strings.TrimSpace(r.FormValue("username"))
 	if !usernameRe.MatchString(name) {
-		a.redirect(w, r, cu, adminBack(r, "/admin/users"), "err", "Benutzername: 3–32 Zeichen, nur Buchstaben, Ziffern, _ . -")
+		a.fail(w, r, cu, adminBack(r, "/admin/users"), errf("Benutzername: 3–32 Zeichen, nur Buchstaben, Ziffern, _ . -"))
 		return
 	}
 	pw := r.FormValue("password")
@@ -669,12 +708,12 @@ func (a *App) userCreate(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
 		pw = randomPassword()
 	}
 	if err := validatePassword(pw); err != nil {
-		a.redirect(w, r, cu, adminBack(r, "/admin/users"), "err", err.Error())
+		a.fail(w, r, cu, adminBack(r, "/admin/users"), err)
 		return
 	}
 	h, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost)
 	if err != nil {
-		a.redirect(w, r, cu, adminBack(r, "/admin/users"), "err", err.Error())
+		a.fail(w, r, cu, adminBack(r, "/admin/users"), err)
 		return
 	}
 	_, err = a.store.CreateUser(User{
@@ -682,21 +721,21 @@ func (a *App) userCreate(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
 		Namespace: r.FormValue("namespace"), MustChangePassword: true,
 	})
 	if err != nil {
-		a.redirect(w, r, cu, adminBack(r, "/admin/users"), "err", "Benutzer anlegen: "+err.Error())
+		a.fail(w, r, cu, adminBack(r, "/admin/users"), errf("Benutzer anlegen: %v", err))
 		return
 	}
-	msg := "Benutzer " + name + " angelegt."
 	if generated {
-		msg += " Einmal-Passwort: " + pw
+		a.ok(w, r, cu, adminBack(r, "/admin/users"), "Benutzer %s angelegt. Einmal-Passwort: %s", name, pw)
+		return
 	}
-	a.redirect(w, r, cu, adminBack(r, "/admin/users"), "ok", msg)
+	a.ok(w, r, cu, adminBack(r, "/admin/users"), "Benutzer %s angelegt.", name)
 }
 
 func (a *App) userFromPath(w http.ResponseWriter, r *http.Request, cu *ctxUser) (User, bool) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	u, err := a.store.UserByID(id)
 	if err != nil {
-		a.redirect(w, r, cu, adminBack(r, "/admin/users"), "err", "Benutzer nicht gefunden")
+		a.fail(w, r, cu, adminBack(r, "/admin/users"), errf("Benutzer nicht gefunden"))
 		return User{}, false
 	}
 	return u, true
@@ -713,7 +752,7 @@ func (a *App) userResetPassword(w http.ResponseWriter, r *http.Request, cu *ctxU
 		pw = randomPassword()
 	}
 	if err := a.setPassword(u.ID, pw, true); err != nil {
-		a.redirect(w, r, cu, adminBack(r, "/admin/users"), "err", err.Error())
+		a.fail(w, r, cu, adminBack(r, "/admin/users"), err)
 		return
 	}
 	keep := ""
@@ -721,11 +760,11 @@ func (a *App) userResetPassword(w http.ResponseWriter, r *http.Request, cu *ctxU
 		keep = cu.Token
 	}
 	a.sessions.DestroyUser(u.ID, keep)
-	msg := "Passwort von " + u.Username + " gesetzt; es muss beim nächsten Login geändert werden."
 	if generated {
-		msg = "Neues Einmal-Passwort für " + u.Username + ": " + pw
+		a.ok(w, r, cu, adminBack(r, "/admin/users"), "Neues Einmal-Passwort für %s: %s", u.Username, pw)
+		return
 	}
-	a.redirect(w, r, cu, adminBack(r, "/admin/users"), "ok", msg)
+	a.ok(w, r, cu, adminBack(r, "/admin/users"), "Passwort von %s gesetzt; es muss beim nächsten Login geändert werden.", u.Username)
 }
 
 func (a *App) userSetNamespace(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
@@ -735,10 +774,10 @@ func (a *App) userSetNamespace(w http.ResponseWriter, r *http.Request, cu *ctxUs
 	}
 	ns := r.FormValue("namespace")
 	if err := a.store.UpdateUser(u.ID, func(x *User) error { x.Namespace = ns; return nil }); err != nil {
-		a.redirect(w, r, cu, adminBack(r, "/admin/users"), "err", err.Error())
+		a.fail(w, r, cu, adminBack(r, "/admin/users"), err)
 		return
 	}
-	a.redirect(w, r, cu, adminBack(r, "/admin/users"), "ok", "Namespace von "+u.Username+" geändert.")
+	a.ok(w, r, cu, adminBack(r, "/admin/users"), "Namespace von %s geändert.", u.Username)
 }
 
 func (a *App) userToggleAdmin(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
@@ -747,14 +786,14 @@ func (a *App) userToggleAdmin(w http.ResponseWriter, r *http.Request, cu *ctxUse
 		return
 	}
 	if u.ID == cu.User.ID {
-		a.redirect(w, r, cu, adminBack(r, "/admin/users"), "err", "Du kannst dir selbst die Admin-Rechte nicht entziehen.")
+		a.fail(w, r, cu, adminBack(r, "/admin/users"), errf("Du kannst dir selbst die Admin-Rechte nicht entziehen."))
 		return
 	}
 	if err := a.store.UpdateUser(u.ID, func(x *User) error { x.IsAdmin = !x.IsAdmin; return nil }); err != nil {
-		a.redirect(w, r, cu, adminBack(r, "/admin/users"), "err", err.Error())
+		a.fail(w, r, cu, adminBack(r, "/admin/users"), err)
 		return
 	}
-	a.redirect(w, r, cu, adminBack(r, "/admin/users"), "ok", "Rechte von "+u.Username+" geändert.")
+	a.ok(w, r, cu, adminBack(r, "/admin/users"), "Rechte von %s geändert.", u.Username)
 }
 
 func (a *App) userDelete(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
@@ -763,15 +802,15 @@ func (a *App) userDelete(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
 		return
 	}
 	if u.ID == cu.User.ID {
-		a.redirect(w, r, cu, adminBack(r, "/admin/users"), "err", "Du kannst dich nicht selbst löschen.")
+		a.fail(w, r, cu, adminBack(r, "/admin/users"), errf("Du kannst dich nicht selbst löschen."))
 		return
 	}
 	if err := a.store.DeleteUser(u.ID); err != nil {
-		a.redirect(w, r, cu, adminBack(r, "/admin/users"), "err", err.Error())
+		a.fail(w, r, cu, adminBack(r, "/admin/users"), err)
 		return
 	}
 	a.sessions.DestroyUser(u.ID, "")
-	a.redirect(w, r, cu, adminBack(r, "/admin/users"), "ok", "Benutzer "+u.Username+" gelöscht. Seine Proxies bleiben im Namespace erhalten.")
+	a.ok(w, r, cu, adminBack(r, "/admin/users"), "Benutzer %s gelöscht. Seine Subdomains bleiben im Namespace erhalten.", u.Username)
 }
 
 // ---- admin: namespaces ----
@@ -802,19 +841,19 @@ func (a *App) namespaceCreate(w http.ResponseWriter, r *http.Request, cu *ctxUse
 		err = a.store.CreateNamespace(d)
 	}
 	if err != nil {
-		a.redirect(w, r, cu, adminBack(r, "/admin/namespaces"), "err", err.Error())
+		a.fail(w, r, cu, adminBack(r, "/admin/namespaces"), err)
 		return
 	}
-	a.redirect(w, r, cu, adminBack(r, "/admin/namespaces"), "ok", "Namespace "+d+" angelegt.")
+	a.ok(w, r, cu, adminBack(r, "/admin/namespaces"), "Namespace %s angelegt.", d)
 }
 
 func (a *App) namespaceDelete(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
 	d := r.PathValue("domain")
 	if err := a.store.DeleteNamespace(d); err != nil {
-		a.redirect(w, r, cu, adminBack(r, "/admin/namespaces"), "err", err.Error())
+		a.fail(w, r, cu, adminBack(r, "/admin/namespaces"), err)
 		return
 	}
-	a.redirect(w, r, cu, adminBack(r, "/admin/namespaces"), "ok", "Namespace "+d+" gelöscht.")
+	a.ok(w, r, cu, adminBack(r, "/admin/namespaces"), "Namespace %s gelöscht.", d)
 }
 
 // ---- admin: caddy ----
@@ -833,10 +872,10 @@ func (a *App) caddyApply(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
 		err = a.caddy.Reload()
 	}
 	if err != nil {
-		a.redirect(w, r, cu, "/admin/caddy", "err", err.Error())
+		a.fail(w, r, cu, "/admin/caddy", err)
 		return
 	}
-	a.redirect(w, r, cu, "/admin/caddy", "ok", "Caddyfile geschrieben und Caddy neu geladen.")
+	a.ok(w, r, cu, "/admin/caddy", "Caddyfile geschrieben und Caddy neu geladen.")
 }
 
 func settingsFromForm(r *http.Request) (Settings, error) {
@@ -851,7 +890,7 @@ func settingsFromForm(r *http.Request) (Settings, error) {
 		return st, err
 	}
 	if st.CaddyFile == "" {
-		return st, errors.New("Pfad zur Caddyfile fehlt")
+		return st, errf("Pfad zur Caddyfile fehlt")
 	}
 	if st.CaddyBin == "" {
 		st.CaddyBin = "caddy"
@@ -868,11 +907,11 @@ func (a *App) caddySettings(w http.ResponseWriter, r *http.Request, cu *ctxUser)
 		err = a.store.SaveSettings(st)
 	}
 	if err != nil {
-		a.redirect(w, r, cu, "/admin/caddy", "err", err.Error())
+		a.fail(w, r, cu, "/admin/caddy", err)
 		return
 	}
 	a.caddy.Configure(st)
-	a.redirect(w, r, cu, "/admin/caddy", "ok", "Einstellungen gespeichert. Mit „Neu schreiben“ wird die Caddyfile am neuen Ort erzeugt.")
+	a.ok(w, r, cu, "/admin/caddy", "Einstellungen gespeichert. Mit „Neu schreiben“ wird die Caddyfile am neuen Ort erzeugt.")
 }
 
 // ---- setup ----
@@ -896,9 +935,9 @@ func (a *App) setupPost(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err != nil:
 	case !usernameRe.MatchString(name):
-		err = errors.New("Benutzername: 3–32 Zeichen, nur Buchstaben, Ziffern, _ . -")
+		err = errf("Benutzername: 3–32 Zeichen, nur Buchstaben, Ziffern, _ . -")
 	case pw != r.FormValue("confirm"):
-		err = errors.New("Die Passwörter stimmen nicht überein.")
+		err = errf("Die Passwörter stimmen nicht überein.")
 	default:
 		err = validatePassword(pw)
 	}
@@ -918,7 +957,7 @@ func (a *App) setupPost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		a.render(w, r, nil, "setup", "Ersteinrichtung", map[string]any{
-			"Settings": st, "Username": name, "flash": &Flash{Kind: "err", Msg: err.Error()},
+			"Settings": st, "Username": name, "flash": errFlash(r, err),
 		})
 		return
 	}

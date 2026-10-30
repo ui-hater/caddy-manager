@@ -1,61 +1,61 @@
 {{define "content"}}
 {{$csrf := .CSRF}}{{$me := .User}}{{$nss := .D.Namespaces}}
 {{template "admin-nav" .Path}}
-<h1>Konten</h1>
+<h1>{{t "Konten"}}</h1>
 <section class="card">
-  <h2>Neues Konto</h2>
+  <h2>{{t "Neues Konto"}}</h2>
   <form method="post" action="/admin/users" class="row">
     <input type="hidden" name="csrf" value="{{$csrf}}">
-    <label>Benutzername <input name="username" required pattern="[A-Za-z0-9_.\-]{3,32}"></label>
-    <label>Passwort <input type="password" name="password" placeholder="leer = zufällig" autocomplete="new-password"></label>
-    <label>Namespace
+    <label>{{t "Benutzername"}} <input name="username" required pattern="[A-Za-z0-9_.\-]{3,32}"></label>
+    <label>{{t "Passwort"}} <input type="password" name="password" placeholder="{{t "leer = zufällig"}}" autocomplete="new-password"></label>
+    <label>{{t "Namespace"}}
       <select name="namespace">
-        <option value="">– keiner –</option>
+        <option value="">– {{t "keiner"}} –</option>
         {{range $nss}}<option value="{{.Domain}}">{{.Domain}}</option>{{end}}
       </select>
     </label>
-    <label class="check"><input type="checkbox" name="is_admin"> Admin</label>
-    <button>Anlegen</button>
+    <label class="check"><input type="checkbox" name="is_admin"> {{t "Admin"}}</label>
+    <button>{{t "Anlegen"}}</button>
   </form>
-  <p class="muted">Neue Benutzer müssen ihr Passwort beim ersten Login ändern.</p>
+  <p class="muted">{{t "Neue Benutzer müssen ihr Passwort beim ersten Login ändern."}}</p>
 </section>
 
 <section class="card">
   <table>
-    <thead><tr><th>Benutzer</th><th>Namespace</th><th>Rolle</th><th>Angelegt</th><th></th></tr></thead>
+    <thead><tr><th>{{t "Benutzer"}}</th><th>{{t "Namespace"}}</th><th>{{t "Rolle"}}</th><th>{{t "Angelegt"}}</th><th></th></tr></thead>
     <tbody>
     {{range .D.Users}}{{$u := .}}
       <tr>
-        <td>{{.Username}}{{if .MustChangePassword}} <span class="badge warn" title="Einmal-Passwort noch nicht geändert">Einmal-PW</span>{{end}}</td>
+        <td>{{.Username}}{{if .MustChangePassword}} <span class="badge warn" title="{{t "Einmal-Passwort noch nicht geändert"}}">{{t "Einmal-PW"}}</span>{{end}}</td>
         <td>
           <form method="post" action="/admin/users/{{.ID}}/namespace" class="inline">
             <input type="hidden" name="csrf" value="{{$csrf}}">
             <select name="namespace">
-              <option value="">– keiner –</option>
+              <option value="">– {{t "keiner"}} –</option>
               {{range $nss}}<option value="{{.Domain}}" {{if eq .Domain $u.Namespace}}selected{{end}}>{{.Domain}}</option>{{end}}
             </select>
-            <button class="secondary">Setzen</button>
+            <button class="secondary">{{t "Setzen"}}</button>
           </form>
         </td>
         <td>
-          {{if .IsAdmin}}<span class="badge">Admin</span>{{else}}Benutzer{{end}}
+          {{if .IsAdmin}}<span class="badge">{{t "Admin"}}</span>{{else}}{{t "Benutzer"}}{{end}}
           {{if ne .ID $me.ID}}
           <form method="post" action="/admin/users/{{.ID}}/admin" class="inline">
             <input type="hidden" name="csrf" value="{{$csrf}}">
-            <button class="link">{{if .IsAdmin}}Admin entziehen{{else}}zum Admin machen{{end}}</button>
+            <button class="link">{{if .IsAdmin}}{{t "Admin entziehen"}}{{else}}{{t "zum Admin machen"}}{{end}}</button>
           </form>
           {{end}}
         </td>
         <td class="muted">{{fmtTime .CreatedAt}}</td>
         <td class="actions">
-          <form method="post" action="/admin/users/{{.ID}}/password" class="inline" data-confirm="Passwort von {{.Username}} ändern?">
+          <form method="post" action="/admin/users/{{.ID}}/password" class="inline" data-confirm="{{tf "Passwort von %s ändern?" .Username}}">
             <input type="hidden" name="csrf" value="{{$csrf}}">
-            <input type="password" name="password" placeholder="leer = zufällig" autocomplete="new-password" size="12">
-            <button class="secondary">PW setzen</button>
+            <input type="password" name="password" placeholder="{{t "leer = zufällig"}}" autocomplete="new-password" size="12">
+            <button class="secondary">{{t "PW setzen"}}</button>
           </form>
           {{if ne .ID $me.ID}}
-          <form method="post" action="/admin/users/{{.ID}}/delete" class="inline" data-confirm="{{.Username}} wirklich löschen?">
-            <input type="hidden" name="csrf" value="{{$csrf}}"><button class="danger">Löschen</button>
+          <form method="post" action="/admin/users/{{.ID}}/delete" class="inline" data-confirm="{{tf "%s wirklich löschen?" .Username}}">
+            <input type="hidden" name="csrf" value="{{$csrf}}"><button class="danger">{{t "Löschen"}}</button>
           </form>
           {{end}}
         </td>

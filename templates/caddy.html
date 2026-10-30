@@ -1,21 +1,21 @@
 {{define "content"}}
 {{template "admin-nav" .Path}}
-<h1>Caddy</h1>
+<h1>{{t "Caddy"}}</h1>
 <section class="card">
-  <h2>Einstellungen</h2>
+  <h2>{{t "Einstellungen"}}</h2>
   <form method="post" action="/admin/caddy/settings" class="stack settings">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
     {{template "caddy-settings" .D.Settings}}
-    <div><button class="secondary">Einstellungen speichern</button></div>
+    <div><button class="secondary">{{t "Einstellungen speichern"}}</button></div>
   </form>
 </section>
 <section class="card">
-  <h2>Aktueller Inhalt</h2>
-  {{if ne .D.Current .D.Expected}}<p class="flash err">Die Datei auf der Platte weicht von der Datenbank ab.</p>{{end}}
+  <h2>{{t "Aktueller Inhalt"}}</h2>
+  {{if ne .D.Current .D.Expected}}<p class="flash err">{{t "Die Datei auf der Platte weicht von der Datenbank ab."}}</p>{{end}}
   <form method="post" action="/admin/caddy/apply">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
-    <button>Neu schreiben &amp; Caddy neu laden</button>
+    <button>{{t "Neu schreiben & Caddy neu laden"}}</button>
   </form>
-  <pre>{{if .D.Current}}{{.D.Current}}{{else}}(Datei existiert noch nicht){{end}}</pre>
+  <pre>{{if .D.Current}}{{.D.Current}}{{else}}{{t "(Datei existiert noch nicht)"}}{{end}}</pre>
 </section>
 {{end}}

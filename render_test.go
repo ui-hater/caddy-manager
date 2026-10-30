@@ -30,9 +30,20 @@ func TestRenderedCaddyfileIsValid(t *testing.T) {
 				AllowIPs: []string{"private_ranges", "203.0.113.0/24", "2001:db8::1"},
 				Compress: true, HSTS: true, AccessLog: true,
 				Extra: "header X-Robots-Tag noindex\nheader -Server",
+				Headers: []HeaderRule{
+					{Target: HeaderResponse, Op: HeaderSet, Name: "X-Frame-Options", Value: "SAMEORIGIN"},
+					{Target: HeaderResponse, Op: HeaderAdd, Name: "Link", Value: "</style.css>; rel=preload; as=style"},
+					{Target: HeaderResponse, Op: HeaderDelete, Name: "X-Powered-By"},
+					{Target: HeaderRequest, Op: HeaderSet, Name: "X-Real-IP", Value: "trusted-proxy"},
+					{Target: HeaderRequest, Op: HeaderDelete, Name: "Cookie"},
+				},
 			}},
 		{ID: 3, Namespace: "aaronhosting.xyz", Host: "pve.aaronhosting.xyz", Upstream: "https://10.0.0.5:8006", Enabled: true,
-			Opts: SiteOptions{TLSSkipVerify: true, HostHeader: true}},
+			Opts: SiteOptions{TLSSkipVerify: true, HostHeader: true, Headers: []HeaderRule{
+				{Target: HeaderRequest, Op: HeaderAdd, Name: "X-Forwarded-Prefix", Value: "/pve"},
+			}}},
+		{ID: 7, Namespace: "leons.cc", Host: "hdr.leons.cc", Upstream: "10.0.0.8:80", Enabled: true,
+			Opts: SiteOptions{Headers: []HeaderRule{{Target: HeaderResponse, Op: HeaderSet, Name: "Cache-Control", Value: "no-store"}}}},
 		{ID: 4, Namespace: "leons.cc", Host: "leons.cc", Enabled: true,
 			Opts: SiteOptions{Kind: KindRedirect, RedirectTo: "https://www.leons.cc", RedirectCode: 301, RedirectKeepPath: true}},
 		{ID: 5, Namespace: "leons.cc", Host: "wartung.leons.cc", Enabled: true,
@@ -60,7 +71,9 @@ func TestRenderedCaddyfileIsValid(t *testing.T) {
 		t.Fatalf("caddy validate: %v\n%s", err, out)
 	}
 
-	for _, want := range []string{"email admin@aaronhosting.xyz", "basic_auth", "handle_path /api/*", "redir https://www.leons.cc{uri} 301", "# deaktiviert: aus.leons.cc"} {
+	for _, want := range []string{"email admin@aaronhosting.xyz", "basic_auth", "handle_path /api/*", "redir https://www.leons.cc{uri} 301", "# deaktiviert: aus.leons.cc",
+		"\t\t\tX-Frame-Options \"SAMEORIGIN\"\n", "\t\t\t+Link \"</style.css>; rel=preload; as=style\"\n", "\t\t\t-X-Powered-By\n", "\t\t\tdefer\n",
+		"header_up X-Real-IP \"trusted-proxy\"", "header_up -Cookie", "header_up +X-Forwarded-Prefix \"/pve\""} {
 		if !strings.Contains(out, want) {
 			t.Errorf("%q fehlt in\n%s", want, out)
 		}
@@ -91,6 +104,14 @@ func TestValidation(t *testing.T) {
 		"extra unbalanced": func() error { return validateExtra("}\nevil.com {") },
 		"extra open":       func() error { return validateExtra("handle {") },
 		"email":            func() error { return validateEmail("a b@c") },
+		"header env":       hdr(HeaderResponse, HeaderSet, "X-Leak", "{env.SECRET}"),
+		"header quote":     hdr(HeaderResponse, HeaderSet, "X-A", `a" }`),
+		"header newline":   hdr(HeaderRequest, HeaderSet, "X-A", "a\nevil"),
+		"header name":      hdr(HeaderResponse, HeaderSet, "X A {", "1"),
+		"header name op":   hdr(HeaderResponse, HeaderSet, "-Server", "1"),
+		"header no value":  hdr(HeaderResponse, HeaderSet, "X-A", ""),
+		"header target":    hdr("both", HeaderSet, "X-A", "1"),
+		"header op":        hdr(HeaderResponse, "replace", "X-A", "1"),
 	}
 	for name, f := range bad {
 		if f() == nil {
@@ -135,5 +156,12 @@ func TestCaddyValidationCatchesErrors(t *testing.T) {
 	p.Opts.BasicAuthUser, p.Opts.BasicAuthHash = "leon", "kaputt"
 	if adapt(p) == nil {
 		t.Error("kaputter Passwort-Hash nicht erkannt")
+	}
+}
+
+func hdr(target, op, name, value string) func() error {
+	return func() error {
+		_, err := normalizeHeader(HeaderRule{Target: target, Op: op, Name: name, Value: value})
+		return err
 	}
 }
