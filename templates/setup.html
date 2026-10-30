@@ -10,6 +10,8 @@
 
     <h2>{{t "Caddy"}}</h2>
     {{template "caddy-settings" .D.Settings}}
+    <label class="check"><input type="checkbox" name="adopt" {{if .D.Adopt}}checked{{end}}> {{t "Bestehende Sites übernehmen"}}</label>
+    <p class="muted">{{th "Die Caddyfile und alle per <code>import</code> eingebundenen Dateien werden durchsucht. Site-Blöcke für eine einzelne Domain werden in die Datenbank übernommen und in die Site-Dateien verschoben; einfache <code>reverse_proxy</code>-Sites werden normale Subdomains, alles andere bleibt als eigene Konfiguration erhalten. Snippets, globale Optionen und Sites mit mehreren Adressen, Wildcards oder Ports bleiben, wo sie sind."}}</p>
     <button>{{t "Einrichtung abschließen"}}</button>
   </form>
 </section>

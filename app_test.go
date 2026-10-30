@@ -82,12 +82,26 @@ func setup(t *testing.T) (*App, *httptest.Server, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	caddyfile := filepath.Join(dir, "Caddyfile")
-	app := &App{store: store, caddy: NewCaddy(Settings{CaddyFile: caddyfile, CaddyBin: "caddy"}),
+	sites := filepath.Join(dir, "sites")
+	app := &App{store: store, caddy: NewCaddy(Settings{CaddyConfig: filepath.Join(dir, "Caddyfile"), SitesDir: sites, CaddyBin: "caddy"}),
 		sessions: NewSessions(), limiter: NewLoginLimiter(), pages: pages}
 	srv := httptest.NewServer(app.Routes(tfs))
 	t.Cleanup(srv.Close)
-	return app, srv, caddyfile
+	return app, srv, sites
+}
+
+// readSites returns the content of all generated site files in dir.
+func readSites(dir string) ([]byte, error) {
+	files, err := filepath.Glob(filepath.Join(dir, "*.caddy"))
+	var all []byte
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, b...)
+	}
+	return all, err
 }
 
 func TestFullFlow(t *testing.T) {
@@ -173,7 +187,7 @@ func TestFullFlow(t *testing.T) {
 
 	bob.post("/proxies/"+appID+"/update", url.Values{"kind": {"proxy"}, "upstream": {"127.0.0.1:4000"}})
 
-	cf, _ := os.ReadFile(caddyfile)
+	cf, _ := readSites(caddyfile)
 	want := "app.aaronhosting.xyz {\n\treverse_proxy 127.0.0.1:4000\n}"
 	if !strings.Contains(string(cf), want) || !strings.Contains(string(cf), "aaronhosting.xyz {\n\treverse_proxy http://localhost:8080\n}") {
 		t.Fatalf("caddyfile unerwartet:\n%s", cf)
@@ -183,7 +197,7 @@ func TestFullFlow(t *testing.T) {
 	}
 
 	bob.post("/proxies/"+appID+"/delete", url.Values{})
-	cf, _ = os.ReadFile(caddyfile)
+	cf, _ = readSites(caddyfile)
 	if strings.Contains(string(cf), "app.aaronhosting.xyz") {
 		t.Fatal("proxy nach löschen noch in caddyfile")
 	}
@@ -198,9 +212,10 @@ func TestFullFlow(t *testing.T) {
 }
 
 func TestCaddyRollback(t *testing.T) {
-	app, srv, caddyfile := setup(t)
-	app.caddy.Configure(Settings{CaddyFile: caddyfile, CaddyBin: filepath.Join(t.TempDir(), "gibts-nicht"), Reload: true})
-	os.WriteFile(caddyfile, []byte("ALT"), 0o644)
+	app, srv, sites := setup(t)
+	main := filepath.Join(filepath.Dir(sites), "Caddyfile")
+	app.caddy.Configure(Settings{CaddyConfig: main, SitesDir: sites, CaddyBin: filepath.Join(t.TempDir(), "gibts-nicht"), Reload: true})
+	os.WriteFile(main, []byte("# ALT\n"), 0o644)
 
 	admin := newClient(t, srv.URL)
 	admin.post("/login", url.Values{"username": {"admin"}, "password": {"adminpass123"}})
@@ -208,8 +223,11 @@ func TestCaddyRollback(t *testing.T) {
 	if b := admin.post("/proxies", url.Values{"namespace": {"leons.cc"}, "subdomain": {"x"}, "upstream": {"127.0.0.1:1"}}); !strings.Contains(b, "fehlgeschlagen") {
 		t.Fatal("fehler von caddy nicht gemeldet")
 	}
-	if cf, _ := os.ReadFile(caddyfile); string(cf) != "ALT" {
+	if cf, _ := os.ReadFile(main); string(cf) != "# ALT\n" {
 		t.Fatalf("caddyfile nicht zurückgerollt: %s", cf)
+	}
+	if cf, _ := readSites(sites); len(cf) != 0 {
+		t.Fatalf("site-datei nicht entfernt: %s", cf)
 	}
 	if len(app.store.Proxies("")) != 0 {
 		t.Fatal("proxy trotz fehler gespeichert")
@@ -248,20 +266,42 @@ func TestSetup(t *testing.T) {
 	if b := c.get("/login"); !strings.Contains(b, "Ersteinrichtung") {
 		t.Fatal("login vor setup erreichbar")
 	}
-	cf := filepath.Join(dir, "managed.caddy")
-	form := url.Values{"username": {"chef"}, "password": {"geheim12345"}, "confirm": {"anders12345"}, "caddy_file": {cf}}
+	main := filepath.Join(dir, "Caddyfile")
+	sites := filepath.Join(dir, "sites")
+	os.WriteFile(main, []byte(`{
+	admin localhost:2019
+}
+
+(common) {
+	encode gzip
+}
+
+alt.aaronhosting.xyz {
+	reverse_proxy 10.0.0.9:80
+}
+
+roh.leons.cc {
+	import common
+	respond "hallo"
+}
+
+*.wild.example.com {
+	respond 404
+}
+`), 0o644)
+	form := url.Values{"username": {"chef"}, "password": {"geheim12345"}, "confirm": {"anders12345"}, "caddy_config": {main}, "sites_dir": {sites}, "adopt": {"on"}}
 	if b := c.post("/setup", form); !strings.Contains(b, "stimmen nicht") {
 		t.Fatal("passwort-bestätigung nicht geprüft")
 	}
 	form.Set("confirm", "geheim12345")
-	if b := c.post("/setup", form); !strings.Contains(b, "Namespaces") {
-		t.Fatalf("setup fehlgeschlagen: %s", b)
+	if b := c.post("/setup", form); !strings.Contains(b, "Namespaces") || !strings.Contains(b, "2 Sites übernommen") || !strings.Contains(b, "*.wild.example.com") {
+		t.Fatalf("setup fehlgeschlagen: %s", regexp.MustCompile(`class="flash[^<]*<`).FindString(b))
 	}
 	u := mustUser(t, app, "chef")
 	if !u.IsAdmin || u.MustChangePassword {
 		t.Fatalf("admin falsch angelegt: %+v", u)
 	}
-	if st := store.Settings(); st.CaddyFile != cf || st.Reload {
+	if st := store.Settings(); st.CaddyConfig != main || st.SitesDir != sites || st.Reload {
 		t.Fatalf("settings nicht gespeichert: %+v", st)
 	}
 
@@ -273,10 +313,30 @@ func TestSetup(t *testing.T) {
 		t.Fatal("zweites setup möglich")
 	}
 
-	// logged in right after setup, proxies end up in the configured file
-	c.post("/admin/namespaces", url.Values{"domain": {"aaronhosting.xyz"}})
+	// existing sites were taken over: simple ones as normal sites, the rest raw
+	ps := store.Proxies("")
+	if len(ps) != 2 || ps[0].Host != "alt.aaronhosting.xyz" || ps[0].Upstream != "10.0.0.9:80" || ps[1].Opts.Kind != KindRaw {
+		t.Fatalf("übernommene sites: %+v", ps)
+	}
+	if !store.NamespaceExists("aaronhosting.xyz") || !store.NamespaceExists("leons.cc") {
+		t.Fatal("namespaces nicht angelegt")
+	}
+	b, _ := os.ReadFile(main)
+	for _, want := range []string{"admin localhost:2019", "(common) {", "*.wild.example.com {", "import " + filepath.ToSlash(sites) + "/*.caddy"} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("%q fehlt in der caddyfile:\n%s", want, b)
+		}
+	}
+	if strings.Contains(string(b), "alt.aaronhosting.xyz") || strings.Contains(string(b), "roh.leons.cc") {
+		t.Fatalf("übernommene site noch in der caddyfile:\n%s", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(sites, "leons.cc.caddy")); !strings.Contains(string(b), "roh.leons.cc {\n\timport common\n\trespond \"hallo\"\n}") {
+		t.Fatalf("leons.cc.caddy: %s", b)
+	}
+
+	// logged in right after setup, proxies end up in the namespace's file
 	c.post("/proxies", url.Values{"namespace": {"aaronhosting.xyz"}, "subdomain": {"vm2"}, "upstream": {"10.0.0.12:80"}})
-	if b, _ := os.ReadFile(cf); !strings.Contains(string(b), "vm2.aaronhosting.xyz {\n\treverse_proxy 10.0.0.12:80\n}") {
+	if b, _ := os.ReadFile(filepath.Join(sites, "aaronhosting.xyz.caddy")); !strings.Contains(string(b), "vm2.aaronhosting.xyz {\n\treverse_proxy 10.0.0.12:80\n}") {
 		t.Fatalf("caddyfile: %s", b)
 	}
 }
@@ -318,7 +378,7 @@ func TestAdminDashboard(t *testing.T) {
 	leon.post("/proxies", url.Values{"subdomain": {"social"}, "upstream": {"10.0.0.2:3000"}})
 	leon.post("/proxies", url.Values{"subdomain": {"tt.aaronhosting.xyz"}, "upstream": {"10.0.0.3:8080"}})
 	leon.post("/proxies", url.Values{"subdomain": {"api.tt"}, "upstream": {"10.0.0.3:9000"}})
-	cf, _ := os.ReadFile(caddyfile)
+	cf, _ := readSites(caddyfile)
 	for _, want := range []string{"social.aaronhosting.xyz {", "tt.aaronhosting.xyz {", "api.tt.aaronhosting.xyz {"} {
 		if !strings.Contains(string(cf), want) {
 			t.Fatalf("%q fehlt in caddyfile:\n%s", want, cf)
@@ -379,7 +439,7 @@ func TestEditSite(t *testing.T) {
 	if p, _ = app.store.ProxyByID(atoi(id)); p.Opts.BasicAuthHash != hash {
 		t.Fatal("passwort-hash beim erneuten speichern verloren")
 	}
-	cf, _ := os.ReadFile(caddyfile)
+	cf, _ := readSites(caddyfile)
 	for _, want := range []string{"handle_path /api/*", "basic_auth", "tls_insecure_skip_verify", "not remote_ip private_ranges"} {
 		if !strings.Contains(string(cf), want) {
 			t.Fatalf("%q fehlt:\n%s", want, cf)
@@ -396,14 +456,14 @@ func TestEditSite(t *testing.T) {
 			t.Fatalf("injection %v akzeptiert", f)
 		}
 	}
-	if cf2, _ := os.ReadFile(caddyfile); string(cf2) != string(cf) {
+	if cf2, _ := readSites(caddyfile); string(cf2) != string(cf) {
 		t.Fatal("caddyfile nach abgelehnter eingabe verändert")
 	}
 
 	// admin may add raw directives
 	form.Set("extra", "header X-Robots-Tag noindex")
 	b := admin.post("/proxies/"+id+"/update", form)
-	if cf, _ = os.ReadFile(caddyfile); !strings.Contains(string(cf), "header X-Robots-Tag noindex") {
+	if cf, _ = readSites(caddyfile); !strings.Contains(string(cf), "header X-Robots-Tag noindex") {
 		t.Fatalf("admin-direktive fehlt: %v\n%s", regexp.MustCompile(`<title>[^<]*<|class="flash[^<]*<`).FindAllString(b, -1), cf)
 	}
 	if b := admin.post("/proxies/"+id+"/update", url.Values{"kind": {"proxy"}, "upstream": {"10.0.0.1:80"}, "extra": {"}\nevil.com {"}}); !strings.Contains(b, "flash err") {
@@ -424,7 +484,7 @@ func TestEditSite(t *testing.T) {
 	if p, _ = app.store.ProxyByID(atoi(id)); len(p.Opts.Headers) != 2 {
 		t.Fatalf("header nicht gespeichert: %+v", p.Opts.Headers)
 	}
-	if cf, _ = os.ReadFile(caddyfile); !strings.Contains(string(cf), `X-Frame-Options "DENY"`) || !strings.Contains(string(cf), "header_up -Cookie") {
+	if cf, _ = readSites(caddyfile); !strings.Contains(string(cf), `X-Frame-Options "DENY"`) || !strings.Contains(string(cf), "header_up -Cookie") {
 		t.Fatalf("header fehlen in caddyfile:\n%s", cf)
 	}
 	hform["hdr_value"] = []string{"{env.SECRET}", "", ""}
@@ -437,11 +497,11 @@ func TestEditSite(t *testing.T) {
 
 	// redirect, then disable
 	bob.post("/proxies/"+id+"/update", url.Values{"kind": {"redirect"}, "redirect_to": {"https://proxmox.example.com"}, "redirect_code": {"301"}})
-	if cf, _ = os.ReadFile(caddyfile); !strings.Contains(string(cf), "redir https://proxmox.example.com 301") {
+	if cf, _ = readSites(caddyfile); !strings.Contains(string(cf), "redir https://proxmox.example.com 301") {
 		t.Fatalf("redirect fehlt:\n%s", cf)
 	}
 	bob.post("/proxies/"+id+"/toggle", url.Values{})
-	if cf, _ = os.ReadFile(caddyfile); strings.Contains(string(cf), "pve.aaronhosting.xyz {") {
+	if cf, _ = readSites(caddyfile); strings.Contains(string(cf), "pve.aaronhosting.xyz {") {
 		t.Fatal("deaktivierte subdomain noch aktiv")
 	}
 }

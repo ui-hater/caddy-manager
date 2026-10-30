@@ -2,9 +2,9 @@
 #
 # Läuft als Benutzer "caddy" (vom Caddy-Paket angelegt), damit
 # `caddy validate` dieselben Daten (/var/lib/caddy) sieht wie der Caddy-Dienst.
-# Der Benutzer braucht Schreibrechte auf das Verzeichnis der verwalteten
-# Caddyfile (die Datei wird atomar über <datei>.tmp ersetzt), z.B.:
-#   chown caddy:caddy /etc/caddy
+# Der Benutzer braucht Schreibrechte auf /etc/caddy (die Caddyfile wird
+# atomar über <datei>.tmp ersetzt, die Site-Dateien liegen in /etc/caddy/sites):
+#   chown caddy:caddy /etc/caddy /etc/caddy/Caddyfile
 #
 # Datenbank: /var/lib/caddy-manager/caddy-manager.db
 

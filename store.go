@@ -44,6 +44,7 @@ const (
 	KindProxy    = "proxy"
 	KindRedirect = "redirect"
 	KindRespond  = "respond"
+	KindRaw      = "raw" // taken over from an existing Caddyfile, admins only
 )
 
 // SiteOptions holds everything beyond host and upstream. It is stored as JSON
@@ -76,6 +77,9 @@ type SiteOptions struct {
 	AccessLog     bool         `json:"access_log,omitempty"`
 	Headers       []HeaderRule `json:"headers,omitempty"`
 	Extra         string       `json:"extra,omitempty"` // raw directives, admins only
+
+	// raw site: the complete block content, nothing else is rendered
+	Raw string `json:"raw,omitempty"`
 }
 
 // Route sends a path prefix to a different upstream.
@@ -122,15 +126,19 @@ func (o SiteOptions) KindOrDefault() string {
 
 // Settings are configured on the setup page and editable by admins.
 type Settings struct {
-	CaddyFile   string // file this program generates completely
-	CaddyConfig string // main config for validate/reload; empty = CaddyFile
+	CaddyConfig string // main Caddyfile; gets "import <SitesDir>/*.caddy"
+	SitesDir    string // one generated file per namespace: <domain>.caddy
 	CaddyBin    string
 	Reload      bool
 	Email       string // ACME e-mail, written as global option
+
+	// LegacyFile is the single managed file of older versions when it was
+	// imported by a separate main config. It is emptied on the next write.
+	LegacyFile string
 }
 
 func DefaultSettings() Settings {
-	return Settings{CaddyFile: "/etc/caddy/Caddyfile", CaddyBin: "caddy", Reload: true}
+	return Settings{CaddyConfig: "/etc/caddy/Caddyfile", SitesDir: "/etc/caddy/sites", CaddyBin: "caddy", Reload: true}
 }
 
 var (
@@ -310,9 +318,11 @@ func (s *Store) CreateUser(u User) (User, error) {
 	return insertUser(s.db, u)
 }
 
-// Setup creates the first admin and stores the settings, but only if there
-// are no users yet. It returns false if setup was already done.
-func (s *Store) Setup(admin User, st Settings) (User, bool, error) {
+// Setup creates the first admin, stores the settings and adds the sites
+// taken over from an existing configuration (with their namespaces), but
+// only if there are no users yet. Like ChangeProxies it commits only when
+// apply succeeded. It returns false if setup was already done.
+func (s *Store) Setup(admin User, st Settings, sites []Proxy, apply func([]Proxy) error) (User, bool, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return User{}, false, err
@@ -330,6 +340,24 @@ func (s *Store) Setup(admin User, st Settings) (User, bool, error) {
 		return User{}, false, err
 	}
 	if err := saveSettings(tx, st); err != nil {
+		return User{}, false, err
+	}
+	now := time.Now().Unix()
+	for _, p := range sites {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO namespaces (domain, created_at) VALUES (?, ?)`, p.Namespace, now); err != nil {
+			return User{}, false, err
+		}
+		opts, _ := json.Marshal(p.Opts)
+		if _, err := tx.Exec(`INSERT INTO proxies (namespace, host, upstream, enabled, options, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			p.Namespace, p.Host, p.Upstream, p.Enabled, string(opts), u.Username, now); err != nil {
+			return User{}, false, err
+		}
+	}
+	list, err := queryProxies(tx, "")
+	if err != nil {
+		return User{}, false, err
+	}
+	if err := apply(list); err != nil {
 		return User{}, false, err
 	}
 	return u, true, tx.Commit()
@@ -556,16 +584,21 @@ func (s *Store) Settings() Settings {
 		return st
 	}
 	defer rows.Close()
+	legacy, haveConfig := "", false
 	for rows.Next() {
 		var k, v string
 		if rows.Scan(&k, &v) != nil {
 			continue
 		}
 		switch k {
-		case "caddy_file":
-			st.CaddyFile = v
+		case "caddy_file": // older versions: single managed file
+			legacy = v
 		case "caddy_config":
-			st.CaddyConfig = v
+			if v != "" {
+				st.CaddyConfig, haveConfig = v, true
+			}
+		case "sites_dir":
+			st.SitesDir = v
 		case "caddy_bin":
 			st.CaddyBin = v
 		case "reload":
@@ -574,13 +607,19 @@ func (s *Store) Settings() Settings {
 			st.Email = v
 		}
 	}
+	if legacy != "" && !haveConfig {
+		st.CaddyConfig = legacy // the managed file was the main config
+	}
+	if legacy != st.CaddyConfig {
+		st.LegacyFile = legacy
+	}
 	return st
 }
 
 func saveSettings(tx dbtx, st Settings) error {
 	for k, v := range map[string]string{
-		"caddy_file":   st.CaddyFile,
 		"caddy_config": st.CaddyConfig,
+		"sites_dir":    st.SitesDir,
 		"caddy_bin":    st.CaddyBin,
 		"reload":       strconv.FormatBool(st.Reload),
 		"email":        st.Email,

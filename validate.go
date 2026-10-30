@@ -299,3 +299,37 @@ func normalizeHeader(h HeaderRule) (HeaderRule, error) {
 	}
 	return h, nil
 }
+
+// normalizeRaw checks the admin-only raw site configuration. The braces are
+// counted with the Caddyfile lexer, so quoted braces can't close the site
+// block early; Caddy validates the rest.
+func normalizeRaw(s string) (string, error) {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	if strings.TrimSpace(s) == "" {
+		return "", errf("Eigene Konfiguration darf nicht leer sein")
+	}
+	if len(s) > 20000 {
+		return "", errf("Eigene Konfiguration: höchstens 20000 Zeichen")
+	}
+	toks, err := lexCaddyfile(s)
+	if err != nil {
+		return "", err
+	}
+	depth := 0
+	for _, t := range toks {
+		if t.is("{") {
+			depth++
+		} else if t.is("}") {
+			if depth--; depth < 0 {
+				return "", errf("Eigene Konfiguration: unerwartete }")
+			}
+		}
+	}
+	if depth != 0 || strings.ContainsRune(s, 0) {
+		return "", errf("Eigene Konfiguration: { und } sind nicht ausgeglichen")
+	}
+	if !strings.HasSuffix(s, "\n") {
+		s += "\n"
+	}
+	return s, nil
+}

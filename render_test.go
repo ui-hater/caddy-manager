@@ -2,6 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -50,28 +53,26 @@ func TestRenderedCaddyfileIsValid(t *testing.T) {
 			Opts: SiteOptions{Kind: KindRespond, RespondStatus: 503, RespondBody: "Wartungsarbeiten - bald wieder da", AllowIPs: []string{"10.0.0.0/8"}}},
 		{ID: 6, Namespace: "leons.cc", Host: "aus.leons.cc", Upstream: "10.0.0.9:80", Enabled: false},
 	}
-	st := Settings{CaddyFile: "Caddyfile", Email: "admin@aaronhosting.xyz"}
-	out := RenderCaddyfile(proxies, st)
-
-	adapter := caddyconfig.GetAdapter("caddyfile")
-	cfgJSON, warnings, err := adapter.Adapt([]byte(out), nil)
-	if err != nil {
-		t.Fatalf("caddy kann die Caddyfile nicht lesen: %v\n%s", err, out)
-	}
-	for _, w := range warnings {
-		t.Logf("caddy warnung: %s:%d %s", w.File, w.Line, w.Message)
-	}
-	var cfg caddy.Config
-	if err := json.Unmarshal(cfgJSON, &cfg); err != nil {
+	dir := t.TempDir()
+	st := Settings{CaddyConfig: filepath.Join(dir, "Caddyfile"), SitesDir: filepath.Join(dir, "sites"), Email: "admin@aaronhosting.xyz"}
+	if err := NewCaddy(st).Apply(proxies); err != nil {
 		t.Fatal(err)
 	}
-	// keep validation from touching the real certificate storage
-	cfg.StorageRaw = json.RawMessage(`{"module":"file_system","root":"` + strings.ReplaceAll(t.TempDir(), `\`, `/`) + `"}`)
-	if err := caddy.Validate(&cfg); err != nil {
-		t.Fatalf("caddy validate: %v\n%s", err, out)
+	sites, _ := readSites(st.SitesDir)
+	main, _ := os.ReadFile(st.CaddyConfig)
+	out := string(main) + string(sites)
+	cfgJSON, err := validateCaddyfile(t, st.CaddyConfig)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
 	}
 
-	for _, want := range []string{"email admin@aaronhosting.xyz", "basic_auth", "handle_path /api/*", "redir https://www.leons.cc{uri} 301", "# deaktiviert: aus.leons.cc",
+	if _, err := os.Stat(filepath.Join(st.SitesDir, "leons.cc.caddy")); err != nil {
+		t.Error("keine eigene Datei pro Namespace")
+	}
+	if !strings.HasPrefix(string(main), "{\n\temail admin@aaronhosting.xyz\n}\n") || strings.Contains(string(sites), "email") {
+		t.Errorf("globale option email falsch:\n%s", out)
+	}
+	for _, want := range []string{"basic_auth", "handle_path /api/*", "redir https://www.leons.cc{uri} 301", "# deaktiviert: aus.leons.cc",
 		"\t\t\tX-Frame-Options \"SAMEORIGIN\"\n", "\t\t\t+Link \"</style.css>; rel=preload; as=style\"\n", "\t\t\t-X-Powered-By\n", "\t\t\tdefer\n",
 		"header_up X-Real-IP \"trusted-proxy\"", "header_up -Cookie", "header_up +X-Forwarded-Prefix \"/pve\""} {
 		if !strings.Contains(out, want) {
@@ -82,11 +83,39 @@ func TestRenderedCaddyfileIsValid(t *testing.T) {
 		t.Error("deaktivierte Subdomain ist in der Caddy-Config")
 	}
 
-	// global options only when the managed file is the main config
-	st.CaddyConfig = "/etc/caddy/Caddyfile"
-	if strings.Contains(RenderCaddyfile(proxies, st), "email ") {
-		t.Error("globale Optionen in importierter Datei")
+	// deleting the last site of a namespace removes its file
+	if err := NewCaddy(st).Apply(proxies[:3]); err != nil {
+		t.Fatal(err)
 	}
+	if _, err := os.Stat(filepath.Join(st.SitesDir, "leons.cc.caddy")); err == nil {
+		t.Error("datei eines leeren namespace nicht gelöscht")
+	}
+}
+
+// validateCaddyfile runs the main Caddyfile (with its imports) through
+// Caddy's adapter and config validation and returns the JSON config.
+func validateCaddyfile(t *testing.T, main string) ([]byte, error) {
+	body, err := os.ReadFile(main)
+	if err != nil {
+		return nil, err
+	}
+	cfgJSON, warnings, err := caddyconfig.GetAdapter("caddyfile").Adapt(body, map[string]any{"filename": main})
+	if err != nil {
+		return nil, fmt.Errorf("caddy kann die Caddyfile nicht lesen: %v", err)
+	}
+	for _, w := range warnings {
+		t.Logf("caddy warnung: %s:%d %s", w.File, w.Line, w.Message)
+	}
+	var cfg caddy.Config
+	if err := json.Unmarshal(cfgJSON, &cfg); err != nil {
+		return nil, err
+	}
+	// keep validation from touching the real certificate storage
+	cfg.StorageRaw = json.RawMessage(`{"module":"file_system","root":"` + strings.ReplaceAll(t.TempDir(), `\`, `/`) + `"}`)
+	if err := caddy.Validate(&cfg); err != nil {
+		return nil, fmt.Errorf("caddy validate: %v", err)
+	}
+	return cfgJSON, nil
 }
 
 func TestValidation(t *testing.T) {
@@ -137,7 +166,7 @@ func TestValidation(t *testing.T) {
 // broken output at all.
 func TestCaddyValidationCatchesErrors(t *testing.T) {
 	adapt := func(p Proxy) error {
-		cfgJSON, _, err := caddyconfig.GetAdapter("caddyfile").Adapt([]byte(RenderCaddyfile([]Proxy{p}, Settings{})), nil)
+		cfgJSON, _, err := caddyconfig.GetAdapter("caddyfile").Adapt([]byte(RenderSites([]Proxy{p})[p.Namespace]), nil)
 		if err != nil {
 			return err
 		}

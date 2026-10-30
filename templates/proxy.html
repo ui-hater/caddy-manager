@@ -15,7 +15,21 @@
       <label class="kind"><input type="radio" name="kind" value="proxy" {{if eq $kind "proxy"}}checked{{end}}> <strong>{{t "Reverse Proxy"}}</strong><span>{{t "Anfragen an eine VM / einen Dienst weiterleiten"}}</span></label>
       <label class="kind"><input type="radio" name="kind" value="redirect" {{if eq $kind "redirect"}}checked{{end}}> <strong>{{t "Weiterleitung"}}</strong><span>{{t "Besucher auf eine andere URL schicken"}}</span></label>
       <label class="kind"><input type="radio" name="kind" value="respond" {{if eq $kind "respond"}}checked{{end}}> <strong>{{t "Feste Antwort"}}</strong><span>{{t "z.B. Wartungsseite oder Platzhalter"}}</span></label>
+      {{if or .User.IsAdmin (eq $kind "raw")}}
+      <label class="kind"><input type="radio" name="kind" value="raw" {{if eq $kind "raw"}}checked{{end}} {{if not .User.IsAdmin}}disabled{{end}}> <strong>{{t "Eigene Konfiguration"}}</strong><span>{{t "Inhalt des Site-Blocks von Hand (nur Admin)"}}</span></label>
+      {{end}}
     </div>
+  </section>
+
+  <section class="card" data-kind="raw">
+    <h2>{{t "Eigene Konfiguration"}} <span class="badge">{{t "nur Admin"}}</span></h2>
+    {{if .User.IsAdmin}}
+    <textarea name="raw" rows="12" class="mono" placeholder="reverse_proxy 10.0.0.12:8080">{{$o.Raw}}</textarea>
+    <p class="muted">{{th "Wird unverändert als Inhalt des Site-Blocks <code>host { … }</code> geschrieben und von <code>caddy validate</code> geprüft. Die übrigen Optionen auf dieser Seite gelten dafür nicht."}}</p>
+    {{else}}
+    <pre>{{$o.Raw}}</pre>
+    <p class="muted">{{t "Diese Subdomain wurde aus einer bestehenden Caddyfile übernommen und kann nur von einem Admin bearbeitet werden."}}</p>
+    {{end}}
   </section>
 
   <section class="card" data-kind="proxy">
@@ -81,7 +95,7 @@
     </div>
   </section>
 
-  <section class="card">
+  <section class="card" data-common>
     <h2>{{t "HTTP-Header"}}</h2>
     <p class="muted">{{th "<strong>Antwort</strong>: Header, die der Besucher bekommt (überschreibt auch Header vom Ziel). <strong>Anfrage</strong>: Header, die an das Ziel geschickt werden (nur Reverse Proxy)."}}</p>
     <table class="routes headers">
@@ -107,7 +121,7 @@
     <p class="muted">{{t "Zum Löschen einer Regel den Namen leeren. Werte dürfen keine Anführungszeichen, Backslashes oder { } enthalten."}}</p>
   </section>
 
-  <section class="card">
+  <section class="card" data-common>
     <h2>{{t "Zugriff"}}</h2>
     <div class="stack">
       <div class="row">
@@ -121,7 +135,7 @@
     </div>
   </section>
 
-  <section class="card">
+  <section class="card" data-common>
     <h2>{{t "Optionen"}}</h2>
     <div class="stack">
       <label class="check"><input type="checkbox" name="compress" {{if $o.Compress}}checked{{end}}> {{t "Komprimierung (zstd / gzip)"}}</label>
@@ -131,7 +145,7 @@
   </section>
 
   {{if .User.IsAdmin}}
-  <section class="card">
+  <section class="card" data-common>
     <h2>{{t "Eigene Caddy-Direktiven"}} <span class="badge">{{t "nur Admin"}}</span></h2>
     <textarea name="extra" rows="5" class="mono" placeholder="header X-Robots-Tag noindex">{{$o.Extra}}</textarea>
     <p class="muted">{{th "Wird unverändert in den Site-Block geschrieben und von <code>caddy validate</code> geprüft."}}</p>
@@ -141,7 +155,7 @@
   {{end}}
 
   <div class="actions-bar">
-    <button>{{t "Speichern & Caddy neu laden"}}</button>
+    {{if or .User.IsAdmin (ne $kind "raw")}}<button>{{t "Speichern & Caddy neu laden"}}</button>{{end}}
     <a href="{{.D.Back}}">{{t "Abbrechen"}}</a>
   </div>
 </form>

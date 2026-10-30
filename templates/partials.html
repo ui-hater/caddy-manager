@@ -1,16 +1,16 @@
 {{define "caddy-settings"}}
-<label>{{t "Verwaltete Caddyfile"}}
-  <input name="caddy_file" value="{{.CaddyFile}}" required>
-  <small>{{t "Wird von caddy-manager komplett überschrieben."}}</small>
+<label>{{t "Caddyfile"}}
+  <input name="caddy_config" value="{{.CaddyConfig}}" placeholder="/etc/caddy/Caddyfile" required>
+  <small>{{th "Deine Haupt-Konfiguration. caddy-manager ergänzt nur die <code>import</code>-Zeile für die Site-Dateien (und ggf. die E-Mail), der Rest bleibt unverändert."}}</small>
 </label>
-<label>{{t "Haupt-Caddyfile (optional)"}}
-  <input name="caddy_config" value="{{.CaddyConfig}}" placeholder="{{t "leer = gleiche Datei"}}">
-  <small>{{th "Nur nötig, wenn deine eigene Caddyfile die verwaltete per <code>import</code> einbindet."}}</small>
+<label>{{t "Verzeichnis für die Site-Dateien"}}
+  <input name="sites_dir" value="{{.SitesDir}}" placeholder="/etc/caddy/sites" required>
+  <small>{{th "Pro Namespace eine Datei <code>&lt;domain&gt;.caddy</code>, eingebunden per <code>import &lt;verzeichnis&gt;/*.caddy</code>. Eigene <code>.caddy</code>-Dateien dort werden mit eingebunden und nicht angefasst."}}</small>
 </label>
 <label>{{t "caddy-Binary"}} <input name="caddy_bin" value="{{.CaddyBin}}" placeholder="caddy"></label>
 <label>{{t "E-Mail für Let's Encrypt (optional)"}}
   <input type="email" name="email" value="{{.Email}}" placeholder="admin@aaronhosting.xyz">
-  <small>{{th "Wird als globale Option <code>email</code> geschrieben – nur wenn die verwaltete Datei auch die Haupt-Caddyfile ist."}}</small>
+  <small>{{th "Wird als globale Option <code>email</code> in die Caddyfile geschrieben."}}</small>
 </label>
 <label class="check"><input type="checkbox" name="reload" {{if .Reload}}checked{{end}}> {{th "Nach Änderungen <code>caddy validate</code> + <code>caddy reload</code> ausführen"}}</label>
 {{end}}

@@ -8,30 +8,35 @@ import (
 
 const managedHeader = "# Generiert von caddy-manager – NICHT VON HAND BEARBEITEN.\n# Änderungen werden beim nächsten Speichern überschrieben.\n\n"
 
-// RenderCaddyfile builds the managed file. Every value written here has been
-// validated against strict patterns (see validate.go) so it cannot inject
-// Caddyfile syntax; only the admin-only Extra field is passed through raw.
-func RenderCaddyfile(proxies []Proxy, st Settings) string {
+// RenderSites builds one file per namespace (namespace -> content). Every
+// value written here has been validated against strict patterns (see
+// validate.go) so it cannot inject Caddyfile syntax; only the admin-only
+// Extra and Raw fields are passed through as they are.
+func RenderSites(proxies []Proxy) map[string]string {
 	ps := append([]Proxy(nil), proxies...)
 	sort.Slice(ps, func(i, j int) bool { return ps[i].Host < ps[j].Host })
 
-	var b strings.Builder
-	b.WriteString(managedHeader)
-	// Global options must be the first block of the main Caddyfile, so they
-	// are only written when the managed file is the main config.
-	if st.Email != "" && st.CaddyConfig == "" {
-		fmt.Fprintf(&b, "{\n\temail %s\n}\n\n", st.Email)
-	}
+	files := map[string]*strings.Builder{}
 	for _, p := range ps {
+		b := files[p.Namespace]
+		if b == nil {
+			b = &strings.Builder{}
+			b.WriteString(managedHeader)
+			files[p.Namespace] = b
+		}
 		if !p.Enabled {
-			fmt.Fprintf(&b, "# deaktiviert: %s (%s, id %d)\n\n", p.Host, p.Namespace, p.ID)
+			fmt.Fprintf(b, "# deaktiviert: %s (%s, id %d)\n\n", p.Host, p.Namespace, p.ID)
 			continue
 		}
-		fmt.Fprintf(&b, "# %s (id %d, von %s)\n", p.Namespace, p.ID, p.CreatedBy)
-		renderSite(&b, p)
+		fmt.Fprintf(b, "# %s (id %d, von %s)\n", p.Namespace, p.ID, p.CreatedBy)
+		renderSite(b, p)
 		b.WriteString("\n")
 	}
-	return b.String()
+	out := make(map[string]string, len(files))
+	for ns, b := range files {
+		out[ns] = b.String()
+	}
+	return out
 }
 
 type blockWriter struct {
@@ -57,6 +62,10 @@ func (w *blockWriter) close() {
 
 func renderSite(b *strings.Builder, p Proxy) {
 	o := p.Opts
+	if o.Kind == KindRaw {
+		fmt.Fprintf(b, "%s {\n%s}\n", p.Host, o.Raw)
+		return
+	}
 	w := &blockWriter{b: b}
 	w.open("%s", p.Host)
 	if o.AccessLog {

@@ -66,6 +66,7 @@
         <td>
           {{if eq $kind "redirect"}}↪ <code>{{$o.RedirectTo}}</code> <span class="muted">({{$o.RedirectCode}})</span>
           {{else if eq $kind "respond"}}<span class="muted">{{tf "Antwort %d:" $o.RespondStatus}}</span> {{$o.RespondBody}}
+          {{else if eq $kind "raw"}}<span class="muted">{{t "eigene Konfiguration"}}</span>
           {{else}}{{range $i, $u := (splitFields .Upstream)}}{{if $i}}<br>{{end}}<code>{{$u}}</code>{{end}}{{end}}
         </td>
         <td class="muted">{{fmtTime .CreatedAt}}<br>{{tf "von %s" .CreatedBy}}</td>

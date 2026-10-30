@@ -388,13 +388,26 @@ func (a *App) renderProxyEdit(w http.ResponseWriter, r *http.Request, cu *ctxUse
 func applySiteForm(r *http.Request, isAdmin bool, p *Proxy) error {
 	o := p.Opts
 	kind := r.FormValue("kind")
-	if !oneOf(kind, []string{KindProxy, KindRedirect, KindRespond}) {
+	if !oneOf(kind, []string{KindProxy, KindRedirect, KindRespond, KindRaw}) {
 		return errf("unbekannter Typ")
+	}
+	if !isAdmin && (kind == KindRaw || o.Kind == KindRaw) {
+		return errf("Eigene Konfiguration kann nur ein Admin bearbeiten.")
 	}
 	o.Kind = kind
 	if kind == KindProxy {
 		o.Kind = ""
 	}
+	if kind == KindRaw {
+		raw, err := normalizeRaw(r.FormValue("raw"))
+		if err != nil {
+			return err
+		}
+		o.Raw = raw
+		p.Opts = o
+		return nil
+	}
+	o.Raw = ""
 
 	switch kind {
 	case KindProxy:
@@ -680,7 +693,7 @@ func (a *App) adminDashboard(w http.ResponseWriter, r *http.Request, cu *ctxUser
 		"Admins":      admins,
 		"Pending":     pending,
 		"Recent":      recent,
-		"CaddyInSync": a.caddy.Current() == RenderCaddyfile(proxies, a.caddy.Settings()),
+		"CaddyInSync": a.caddy.InSync(proxies),
 		"Settings":    a.caddy.Settings(),
 	})
 }
@@ -859,11 +872,12 @@ func (a *App) namespaceDelete(w http.ResponseWriter, r *http.Request, cu *ctxUse
 // ---- admin: caddy ----
 
 func (a *App) caddyPage(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
-	a.render(w, r, cu, "caddy", "Caddy", map[string]any{
-		"Current":  a.caddy.Current(),
-		"Expected": RenderCaddyfile(a.store.Proxies(""), a.caddy.Settings()),
-		"Settings": a.caddy.Settings(),
-	})
+	files, err := a.caddy.Files(a.store.Proxies(""))
+	d := map[string]any{"Files": files, "Settings": a.caddy.Settings()}
+	if err != nil {
+		d["flash"] = errFlash(r, err)
+	}
+	a.render(w, r, cu, "caddy", "Caddy", d)
 }
 
 func (a *App) caddyApply(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
@@ -880,8 +894,8 @@ func (a *App) caddyApply(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
 
 func settingsFromForm(r *http.Request) (Settings, error) {
 	st := Settings{
-		CaddyFile:   strings.TrimSpace(r.FormValue("caddy_file")),
 		CaddyConfig: strings.TrimSpace(r.FormValue("caddy_config")),
+		SitesDir:    strings.TrimRight(strings.TrimSpace(r.FormValue("sites_dir")), `/\`),
 		CaddyBin:    strings.TrimSpace(r.FormValue("caddy_bin")),
 		Reload:      r.FormValue("reload") == "on",
 		Email:       strings.TrimSpace(r.FormValue("email")),
@@ -889,14 +903,18 @@ func settingsFromForm(r *http.Request) (Settings, error) {
 	if err := validateEmail(st.Email); err != nil {
 		return st, err
 	}
-	if st.CaddyFile == "" {
+	if st.CaddyConfig == "" {
 		return st, errf("Pfad zur Caddyfile fehlt")
+	}
+	if st.SitesDir == "" {
+		return st, errf("Verzeichnis für die Site-Dateien fehlt")
+	}
+	// the path ends up unquoted in the import line
+	if strings.ContainsAny(st.SitesDir, " \t\r\n\"`{}#*?[") {
+		return st, errf("Verzeichnis für die Site-Dateien darf keine Leer- oder Sonderzeichen enthalten")
 	}
 	if st.CaddyBin == "" {
 		st.CaddyBin = "caddy"
-	}
-	if st.CaddyConfig == st.CaddyFile {
-		st.CaddyConfig = ""
 	}
 	return st, nil
 }
@@ -904,6 +922,7 @@ func settingsFromForm(r *http.Request) (Settings, error) {
 func (a *App) caddySettings(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
 	st, err := settingsFromForm(r)
 	if err == nil {
+		st.LegacyFile = a.caddy.Settings().LegacyFile
 		err = a.store.SaveSettings(st)
 	}
 	if err != nil {
@@ -911,7 +930,7 @@ func (a *App) caddySettings(w http.ResponseWriter, r *http.Request, cu *ctxUser)
 		return
 	}
 	a.caddy.Configure(st)
-	a.ok(w, r, cu, "/admin/caddy", "Einstellungen gespeichert. Mit „Neu schreiben“ wird die Caddyfile am neuen Ort erzeugt.")
+	a.ok(w, r, cu, "/admin/caddy", "Einstellungen gespeichert. Mit „Neu schreiben“ werden die Dateien am neuen Ort erzeugt.")
 }
 
 // ---- setup ----
@@ -921,7 +940,7 @@ func (a *App) setupPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
-	a.render(w, r, nil, "setup", "Ersteinrichtung", map[string]any{"Settings": a.caddy.Settings(), "Username": "admin"})
+	a.render(w, r, nil, "setup", "Ersteinrichtung", map[string]any{"Settings": a.caddy.Settings(), "Username": "admin", "Adopt": true})
 }
 
 func (a *App) setupPost(w http.ResponseWriter, r *http.Request) {
@@ -941,12 +960,19 @@ func (a *App) setupPost(w http.ResponseWriter, r *http.Request) {
 	default:
 		err = validatePassword(pw)
 	}
+	// take over the site blocks of the existing configuration
+	adopt := r.FormValue("adopt") == "on"
+	var scan ScanResult
+	if err == nil && adopt {
+		scan, err = ScanCaddyConfig(st.CaddyConfig)
+	}
 	var u User
 	if err == nil {
 		var h []byte
 		if h, err = bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost); err == nil {
 			var created bool
-			u, created, err = a.store.Setup(User{Username: name, PasswordHash: string(h), IsAdmin: true}, st)
+			apply := func(ps []Proxy) error { return NewCaddy(st).ApplyWith(ps, scan.Files) }
+			u, created, err = a.store.Setup(User{Username: name, PasswordHash: string(h), IsAdmin: true}, st, scan.Sites, apply)
 			if err == nil && !created {
 				a.setupDone.Store(true)
 				http.Redirect(w, r, "/login", http.StatusSeeOther)
@@ -957,13 +983,19 @@ func (a *App) setupPost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		a.render(w, r, nil, "setup", "Ersteinrichtung", map[string]any{
-			"Settings": st, "Username": name, "flash": errFlash(r, err),
+			"Settings": st, "Username": name, "Adopt": adopt, "flash": errFlash(r, err),
 		})
 		return
 	}
 	a.caddy.Configure(st)
 	a.setupDone.Store(true)
-	log.Printf("setup: admin %q angelegt, Caddyfile %s", u.Username, st.CaddyFile)
-	a.sessions.Create(w, u.ID, isHTTPS(r))
+	log.Printf("setup: admin %q angelegt, Caddyfile %s, %d Sites übernommen, %d unverändert gelassen", u.Username, st.CaddyConfig, len(scan.Sites), len(scan.Kept))
+	sess := a.sessions.Create(w, u.ID, isHTTPS(r))
+	switch {
+	case len(scan.Kept) > 0:
+		a.sessions.SetFlash(sess, "ok", Tf(langFromRequest(r), "%d Sites übernommen. Nicht übernommen (bleiben unverändert in ihrer Datei): %s", len(scan.Sites), strings.Join(scan.Kept, "; ")))
+	case len(scan.Sites) > 0:
+		a.sessions.SetFlash(sess, "ok", Tf(langFromRequest(r), "%d Sites aus der bestehenden Konfiguration übernommen.", len(scan.Sites)))
+	}
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }

@@ -10,12 +10,17 @@
   </form>
 </section>
 <section class="card">
-  <h2>{{t "Aktueller Inhalt"}}</h2>
-  {{if ne .D.Current .D.Expected}}<p class="flash err">{{t "Die Datei auf der Platte weicht von der Datenbank ab."}}</p>{{end}}
+  <h2>{{t "Dateien"}}</h2>
   <form method="post" action="/admin/caddy/apply">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
     <button>{{t "Neu schreiben & Caddy neu laden"}}</button>
   </form>
-  <pre>{{if .D.Current}}{{.D.Current}}{{else}}{{t "(Datei existiert noch nicht)"}}{{end}}</pre>
+  {{range .D.Files}}
+  <h3><code>{{.Path}}</code></h3>
+  {{if .Remove}}<p class="flash err">{{t "Gehört zu keinem Namespace mehr und wird beim nächsten Schreiben gelöscht."}}</p>
+  {{else if not .Exists}}<p class="flash err">{{t "(Datei existiert noch nicht)"}}</p>
+  {{else if not .InSync}}<p class="flash err">{{t "Die Datei auf der Platte weicht von der Datenbank ab."}}</p>{{end}}
+  {{if .Exists}}<pre>{{.Current}}</pre>{{end}}
+  {{end}}
 </section>
 {{end}}

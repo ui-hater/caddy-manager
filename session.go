@@ -57,15 +57,17 @@ func randToken() string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-func (s *Sessions) Create(w http.ResponseWriter, userID int64, secure bool) {
+func (s *Sessions) Create(w http.ResponseWriter, userID int64, secure bool) *Session {
 	tok := randToken()
+	sess := &Session{UserID: userID, CSRF: randToken(), Expires: time.Now().Add(sessionTTL)}
 	s.mu.Lock()
-	s.m[tok] = &Session{UserID: userID, CSRF: randToken(), Expires: time.Now().Add(sessionTTL)}
+	s.m[tok] = sess
 	s.mu.Unlock()
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: tok, Path: "/", HttpOnly: true, Secure: secure,
 		SameSite: http.SameSiteLaxMode, MaxAge: int(sessionTTL.Seconds()),
 	})
+	return sess
 }
 
 func (s *Sessions) Get(r *http.Request) (string, *Session) {

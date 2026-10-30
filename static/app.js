@@ -14,5 +14,9 @@ function showKind() {
   document.querySelectorAll("[data-kind]").forEach(function (el) {
     el.hidden = el.getAttribute("data-kind") !== checked.value;
   });
+  // a raw site is written as is, the common options don't apply
+  document.querySelectorAll("[data-common]").forEach(function (el) {
+    el.hidden = checked.value === "raw";
+  });
 }
 document.addEventListener("DOMContentLoaded", showKind);
